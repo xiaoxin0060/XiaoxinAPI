@@ -1,0 +1,17 @@
+
+dubbo:
+  protocol:
+    name: tri
+    port: 50051
+  application:
+    name: consumer-test
+    qos-enable: false
+    logger: slf4j
+  registry:
+    address: nacos://127.0.0.1:8848?username=nacos&password=nacos
+    register-mode: instance
+  consumer:
+    timeout: 10000  # 延长超时时间
+    retries: 0
+    check: false
+

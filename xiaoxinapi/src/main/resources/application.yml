@@ -1,0 +1,78 @@
+# 公共配置文件
+spring:
+  application:
+    name: xiaoxinapi
+  # 默认 dev 环境
+  profiles:
+    active: dev
+  # 支持 swagger3
+  mvc:
+    pathmatch:
+      matching-strategy: ant_path_matcher
+  # session 配置
+  session:
+    # 30 天过期
+    timeout: 2592000
+  # 数据库配置
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://localhost:3306/xiaoxinapi
+    username: root
+    password: root
+  # Redis 配置
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      database: 1
+      timeout: 5000
+  # Elasticsearch 配置
+  elasticsearch:
+    uris: http://localhost:9200
+    username: root
+    password: 123456
+  # 文件上传
+  servlet:
+    multipart:
+      # 大小限制
+      max-file-size: 10MB
+server:
+  address: 0.0.0.0
+  port: 8101
+  servlet:
+    context-path: /api
+    # cookie 30 天过期
+    session:
+      cookie:
+        max-age: 2592000
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: false
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+  global-config:
+    db-config:
+      logic-delete-field: isDelete # 全局逻辑删除的实体字段名
+      logic-delete-value: 1 # 逻辑已删除值（默认为 1）
+      logic-not-delete-value: 0 # 逻辑未删除值（默认为 0）
+      insert-strategy: not_empty
+      update-strategy: not_empty
+
+dubbo:
+  registry:
+    address: nacos://127.0.0.1:8848?username=nacos&password=nacos
+    register-mode: instance
+  protocol:
+    name: tri
+    port: 50051
+  application:
+    qos-enable: false
+    name: service
+    qos-port: 22223
+    qos-accept-foreign-ip: false
+    logger: slf4j
+
+
+xiaoxinapi:
+  client:
+    access-key: xiaoxinAccessKey
+    secret-key: xiaoxinSecretKey

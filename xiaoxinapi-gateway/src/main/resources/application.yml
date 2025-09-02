@@ -1,0 +1,27 @@
+server:
+  port: 9999
+spring:
+  cloud:
+    gateway:
+      server:
+        webflux:
+          default-filters:
+            - AddResponseHeader=source, xiaoxin
+          routes:
+            - id: api_route
+              uri: http://localhost:8888
+              predicates:
+                - Path=/api/**
+dubbo:
+  registry:
+    address: nacos://127.0.0.1:8848?username=nacos&password=nacos
+    register-mode: instance
+  protocol:
+    name: tri
+    port: 50051
+  application:
+    qos-enable: false
+    name: consumer
+    qos-port: 22223
+    qos-accept-foreign-ip: false
+    logger: slf4j
