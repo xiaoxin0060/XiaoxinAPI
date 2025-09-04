@@ -8,8 +8,9 @@ spring:
           default-filters:
             - AddResponseHeader=source, xiaoxin
           routes:
-            - id: api_route
-              uri: http://localhost:8888
+            # 捕获所有/api/**请求，URI为占位符，实际转发在GlobalFilter中处理
+            - id: dynamic_proxy_route
+              uri: http://httpbin.org  # 占位符，实际不会使用
               predicates:
                 - Path=/api/**
 dubbo:

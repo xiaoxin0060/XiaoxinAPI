@@ -20,7 +20,10 @@ public class InnerInterfaceInfoServiceImpl implements InnerInterfaceInfoService{
     private InterfaceInfoMapper interfaceInfoMapper;
 
     /**
-     * 从数据库中查询模拟接口是否存在（请求路径、请求方法、请求参数）
+     * 从数据库中查询接口是否存在（根据平台路径查询，支持动态代理）
+     * @param url 平台统一API路径（如：/api/weather/current）
+     * @param method HTTP方法
+     * @return 接口信息（包含providerUrl真实地址）
      */
     @Override
     public InterfaceInfo getInterfaceInfo(String url, String method) {

@@ -2,10 +2,12 @@ package com.xiaoxin.controller;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
-import com.google.gson.Gson;
 import com.xiaoxin.annotation.AuthCheck;
 import com.xiaoxin.common.*;
 import com.xiaoxin.constant.CommonConstant;
+import org.springframework.http.ResponseEntity;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import com.xiaoxin.exception.BusinessException;
 import com.xiaoxin.model.dto.interfaceinfo.InterfaceInfoAddRequest;
 import com.xiaoxin.model.dto.interfaceinfo.InterfaceInfoInvokeRequest;
@@ -26,6 +28,7 @@ import org.apache.commons.lang3.StringUtils;
 import org.springdoc.core.annotations.ParameterObject;
 import org.springframework.beans.BeanUtils;
 import org.springframework.web.bind.annotation.*;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.util.List;
 
@@ -46,6 +49,9 @@ public class InterfaceInfoController{
 
     @Resource
     private XiaoxinApiClient xiaoxinApiClient;
+    
+    @Resource
+    private ObjectMapper objectMapper;
 
     // region 增删改查
 
@@ -203,7 +209,7 @@ public class InterfaceInfoController{
             throw new BusinessException(ErrorCode.PARAMS_ERROR);
         }
         QueryWrapper<InterfaceInfo> queryWrapper = new QueryWrapper<>(interfaceInfoQuery);
-        queryWrapper.like(StringUtils.isNotBlank(description), "content", description);
+        queryWrapper.like(StringUtils.isNotBlank(description), "description", description);
         queryWrapper.orderBy(StringUtils.isNotBlank(sortField),
                 sortOrder.equals(CommonConstant.SORT_ORDER_ASC),
                 sortField);
@@ -231,13 +237,12 @@ public class InterfaceInfoController{
         if (oldInterfaceInfo == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND_ERROR);
         }
-        // 判断该接口是否可以调用
-        com.xiaoxin.sdk.model.User user = new com.xiaoxin.sdk.model.User();
-        user.setUsername("test");
-        String username = xiaoxinApiClient.getUsernameByPost(user);
-        if (StringUtils.isBlank(username)) {
-            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "接口验证失败");
+        // 简单验证接口配置的完整性，不进行实际调用测试
+        // 实际的接口测试应该由管理员在前端手动进行，或通过专门的测试接口
+        if (StringUtils.isAnyBlank(oldInterfaceInfo.getUrl(), oldInterfaceInfo.getMethod(), oldInterfaceInfo.getProviderUrl())) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "接口配置不完整，无法发布");
         }
+        log.info("接口配置验证通过: {} {} -> {}", oldInterfaceInfo.getMethod(), oldInterfaceInfo.getUrl(), oldInterfaceInfo.getProviderUrl());
         // 仅本人或管理员可修改
         InterfaceInfo interfaceInfo = new InterfaceInfo();
         interfaceInfo.setId(id);
@@ -282,13 +287,14 @@ public class InterfaceInfoController{
      * @return
      */
     @PostMapping("/invoke")
-    public BaseResponse<Object> invokeInterfaceInfo(@RequestBody InterfaceInfoInvokeRequest interfaceInfoInvokeRequest,
-                                                    HttpServletRequest request) {
+    public ResponseEntity<String> invokeInterfaceInfo(@RequestBody InterfaceInfoInvokeRequest interfaceInfoInvokeRequest,
+                                                      HttpServletRequest request) {
         if (interfaceInfoInvokeRequest == null || interfaceInfoInvokeRequest.getId() <= 0) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR);
         }
         long id = interfaceInfoInvokeRequest.getId();
-        String userRequestParams = interfaceInfoInvokeRequest.getUserRequestParams();
+        Object userRequestParamsObj = interfaceInfoInvokeRequest.getUserRequestParams();
+        
         // 判断是否存在
         InterfaceInfo oldInterfaceInfo = interfaceInfoService.getById(id);
         if (oldInterfaceInfo == null) {
@@ -301,10 +307,87 @@ public class InterfaceInfoController{
         String accessKey = loginUser.getAccessKey();
         String secretKey = loginUser.getSecretKey();
         XiaoxinApiClient tempClient = new XiaoxinApiClient(accessKey, secretKey);
-        Gson gson = new Gson();
-        com.xiaoxin.sdk.model.User user = gson.fromJson(userRequestParams, com.xiaoxin.sdk.model.User.class);
-        String usernameByPost = tempClient.getUsernameByPost(user);
-        return ResultUtils.success(usernameByPost);
+        
+        // 调用真实接口 - 使用企业级智能参数转换
+        try {
+            String result = tempClient.invokeInterface(
+                oldInterfaceInfo.getUrl(),           // 平台路径：/api/geo/query
+                oldInterfaceInfo.getMethod(),        // HTTP方法：GET/POST
+                userRequestParamsObj                 // 用户参数：支持JSON对象自动转换
+            );
+            // 格式化响应，提升可读性
+            String formattedResult = formatApiResponse(result);
+            
+            // 返回格式化后的响应
+            return ResponseEntity.ok()
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(formattedResult);
+        } catch (Exception e) {
+            log.error("接口调用失败", e);
+            // 构建错误响应，保持与网关统一的格式
+            String errorResponse = String.format(
+                "{\"code\":500,\"data\":null,\"message\":\"接口调用失败: %s\",\"timestamp\":%d}",
+                e.getMessage().replace("\"", "\\\""), System.currentTimeMillis()
+            );
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(errorResponse);
+        }
+    }
+
+    /**
+     * 格式化API响应，优化JSON字符串的可读性
+     * @param rawResponse 原始响应字符串
+     * @return 格式化后的响应
+     */
+    private String formatApiResponse(String rawResponse) {
+        try {
+            // 解析响应为JsonNode
+            var responseNode = objectMapper.readTree(rawResponse);
+            
+            // 检查是否有data字段包含转义的JSON字符串
+            if (responseNode.has("data") && responseNode.get("data").has("data")) {
+                var dataNode = responseNode.get("data").get("data");
+                if (dataNode.isTextual()) {
+                    String dataString = dataNode.asText();
+                    // 尝试解析data字段中的JSON字符串
+                    try {
+                        var parsedData = objectMapper.readTree(dataString);
+                        // 替换原来的字符串为解析后的JSON对象
+                        ((com.fasterxml.jackson.databind.node.ObjectNode) responseNode.get("data"))
+                            .set("data", parsedData);
+                    } catch (Exception e) {
+                        // 如果解析失败，保持原样
+                        log.debug("数据字段不是有效的JSON，保持原格式: {}", dataString);
+                    }
+                }
+            }
+            
+            // 检查headers中的Body字段
+            if (responseNode.has("data") && responseNode.get("data").has("headers") 
+                && responseNode.get("data").get("headers").has("Body")) {
+                var bodyNode = responseNode.get("data").get("headers").get("Body");
+                if (bodyNode.isTextual()) {
+                    String bodyString = bodyNode.asText();
+                    try {
+                        var parsedBody = objectMapper.readTree(bodyString);
+                        // 替换原来的字符串为解析后的JSON对象
+                        ((com.fasterxml.jackson.databind.node.ObjectNode) responseNode.get("data").get("headers"))
+                            .set("Body", parsedBody);
+                    } catch (Exception e) {
+                        // 如果解析失败，保持原样
+                        log.debug("Body字段不是有效的JSON，保持原格式: {}", bodyString);
+                    }
+                }
+            }
+            
+            // 返回格式化后的JSON字符串
+            return objectMapper.writeValueAsString(responseNode);
+            
+        } catch (Exception e) {
+            log.warn("响应格式化失败，返回原始响应: {}", e.getMessage());
+            return rawResponse;
+        }
     }
 
 }

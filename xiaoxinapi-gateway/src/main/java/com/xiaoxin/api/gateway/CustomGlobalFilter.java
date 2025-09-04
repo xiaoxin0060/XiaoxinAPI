@@ -1,5 +1,7 @@
 package com.xiaoxin.api.gateway;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.xiaoxin.sdk.utils.SignUtils;
 import lombok.NonNull;
 import lombok.extern.slf4j.Slf4j;
@@ -10,6 +12,7 @@ import org.reactivestreams.Publisher;
 import org.springframework.cloud.gateway.filter.GatewayFilterChain;
 import org.springframework.cloud.gateway.filter.GlobalFilter;
 import org.springframework.core.Ordered;
+import org.springframework.web.reactive.function.client.WebClient;
 
 import org.springframework.core.io.buffer.DataBuffer;
 import org.springframework.core.io.buffer.DataBufferFactory;
@@ -30,9 +33,7 @@ import service.InnerUserInterfaceInfoService;
 import service.InnerUserService;
 
 import java.nio.charset.StandardCharsets;
-import java.util.Arrays;
-import java.util.List;
-import java.util.Objects;
+import java.util.*;
 
 @Slf4j
 @Component
@@ -46,10 +47,19 @@ public class CustomGlobalFilter implements GlobalFilter, Ordered{
 
     @DubboReference
     private InnerUserInterfaceInfoService innerUserInterfaceInfoService;
+    
+    private final WebClient webClient;
+    private final ObjectMapper objectMapper;
 
     private static final List<String> IP_WHITE_LIST = Arrays.asList("127.0.0.1","0:0:0:0:0:0:0:1");
-
-    private static final String INTERFACE_HOST = "http://localhost:8888";
+    
+    public CustomGlobalFilter() {
+        this.webClient = WebClient.builder().build();
+        this.objectMapper = new ObjectMapper();
+        // 配置ObjectMapper确保正确处理UTF-8编码
+        this.objectMapper.getFactory().configure(
+            com.fasterxml.jackson.core.JsonGenerator.Feature.ESCAPE_NON_ASCII, false);
+    }
 
 
     @Override
@@ -57,10 +67,10 @@ public class CustomGlobalFilter implements GlobalFilter, Ordered{
         log.info(">>>网关全局过滤器被调用");
         // 1. 请求日志
         ServerHttpRequest request = exchange.getRequest();
-        String path = INTERFACE_HOST + request.getPath().value();
+        String platformPath = request.getPath().value();  // 平台路径，用于查询数据库
         String method = request.getMethod().toString();
         log.info("请求唯一标识：" + request.getId());
-        log.info("请求路径：" + path);
+        log.info("平台路径：" + platformPath);
         log.info("请求方法：" + method);
         log.info("请求参数：" + request.getQueryParams());
         String sourceAddress = Objects.requireNonNull(request.getLocalAddress()).getHostString();
@@ -104,18 +114,26 @@ public class CustomGlobalFilter implements GlobalFilter, Ordered{
         if (sign == null || !sign.equals(serverSign)) {
             return handleNoAuth(response);
         }
-        // 4. 请求的模拟接口是否存在，以及请求方法是否匹配
+        // 4. 查询用户上传的真实接口信息
         InterfaceInfo interfaceInfo = null;
         try {
-            interfaceInfo = innerInterfaceInfoService.getInterfaceInfo(path, method);
+            interfaceInfo = innerInterfaceInfoService.getInterfaceInfo(platformPath, method);
         } catch (Exception e) {
-            log.error("getInterfaceInfo error", e);
+            log.error("查询接口信息失败", e);
         }
         if (interfaceInfo == null) {
+            log.warn("接口不存在: path={}, method={}", platformPath, method);
             return handleNoAuth(response);
         }
-        //5. 请求转发，调用模拟接口 + 响应日志
-        return handleResponse(exchange, chain, interfaceInfo.getId(), invokeUser.getId());
+        
+        // 检查接口状态
+        if (interfaceInfo.getStatus() != 1) {
+            log.warn("接口已下线: {}", interfaceInfo.getName());
+            return handleNoAuth(response);
+        }
+        
+        //5. 动态代理调用用户的真实接口
+        return handleDynamicProxy(exchange, interfaceInfo, invokeUser);
     }
 
     // 处理响应
@@ -170,6 +188,217 @@ public class CustomGlobalFilter implements GlobalFilter, Ordered{
             log.error("网关处理响应异常{}", e.getMessage());
             return chain.filter(exchange);
         }
+    }
+
+    /**
+     * 动态代理调用用户的真实接口
+     */
+    private Mono<Void> handleDynamicProxy(ServerWebExchange exchange, InterfaceInfo interfaceInfo, User invokeUser) {
+        ServerHttpRequest request = exchange.getRequest();
+        ServerHttpResponse response = exchange.getResponse();
+        
+        String realUrl = buildRealUrl(interfaceInfo, request);
+        log.info("开始动态代理调用 - 接口: {}, 真实地址: {}", interfaceInfo.getName(), realUrl);
+        
+        // 构建请求头
+        HttpHeaders realHeaders = buildRealHeaders(interfaceInfo, request);
+        
+        // 使用WebClient调用真实接口
+        return webClient.method(request.getMethod())
+                .uri(realUrl)
+                .headers(headers -> headers.addAll(realHeaders))
+                .body(request.getBody(), DataBuffer.class)
+                .retrieve()
+                .bodyToMono(String.class)
+                .timeout(java.time.Duration.ofMillis(interfaceInfo.getTimeout() != null ? interfaceInfo.getTimeout() : 30000))
+                .flatMap(responseBody -> {
+                    try {
+                        // 记录调用成功
+                        log.info("接口调用成功 - 接口: {}, 响应长度: {}", interfaceInfo.getName(), responseBody.length());
+                        
+                        // 更新调用统计（异步）
+                        updateCallStats(interfaceInfo.getId(), invokeUser.getId());
+                        
+                        // 构建统一响应格式
+                        String unifiedResponse = buildUnifiedResponse(responseBody, interfaceInfo, true, null);
+                        
+                        // 返回响应
+                        response.getHeaders().add("Content-Type", "application/json;charset=UTF-8");
+                        DataBuffer buffer = response.bufferFactory().wrap(unifiedResponse.getBytes(StandardCharsets.UTF_8));
+                        return response.writeWith(Mono.just(buffer));
+                        
+                    } catch (Exception e) {
+                        log.error("处理响应异常", e);
+                        return handleProxyError(response, "处理响应失败: " + e.getMessage());
+                    }
+                })
+                .onErrorResume(error -> {
+                    log.error("接口调用失败 - 接口: {}, 错误: {}", interfaceInfo.getName(), error.getMessage());
+                    String errorResponse = buildUnifiedResponse(null, interfaceInfo, false, error.getMessage());
+                    return writeErrorResponse(response, errorResponse);
+                });
+    }
+    
+    /**
+     * 构建真实接口URL
+     */
+    private String buildRealUrl(InterfaceInfo interfaceInfo, ServerHttpRequest request) {
+        String providerUrl = interfaceInfo.getProviderUrl();
+        String queryString = request.getURI().getQuery();
+        
+        if (queryString != null && !queryString.isEmpty()) {
+            String separator = providerUrl.contains("?") ? "&" : "?";
+            return providerUrl + separator + queryString;
+        }
+        
+        return providerUrl;
+    }
+    
+    /**
+     * 构建真实接口请求头
+     */
+    private HttpHeaders buildRealHeaders(InterfaceInfo interfaceInfo, ServerHttpRequest request) {
+        HttpHeaders realHeaders = new HttpHeaders();
+        
+        // 复制原始请求头（排除网关认证头）
+        request.getHeaders().forEach((key, values) -> {
+            if (!isGatewayHeader(key)) {
+                realHeaders.addAll(key, values);
+            }
+        });
+        
+        // 添加访问真实接口的认证信息
+        addAuthHeaders(realHeaders, interfaceInfo);
+        
+        // 添加标识头
+        realHeaders.add("X-Forwarded-By", "XiaoXin-API-Gateway");
+        realHeaders.add("X-Request-ID", request.getId());
+        
+        return realHeaders;
+    }
+    
+    /**
+     * 判断是否为网关认证头
+     */
+    private boolean isGatewayHeader(String headerName) {
+        return "accessKey".equalsIgnoreCase(headerName) ||
+               "sign".equalsIgnoreCase(headerName) ||
+               "nonce".equalsIgnoreCase(headerName) ||
+               "timestamp".equalsIgnoreCase(headerName);
+    }
+    
+    /**
+     * 添加访问真实接口的认证头
+     */
+    private void addAuthHeaders(HttpHeaders headers, InterfaceInfo interfaceInfo) {
+        String authType = interfaceInfo.getAuthType();
+        String authConfig = interfaceInfo.getAuthConfig();
+        
+        if (!"NONE".equals(authType) && authConfig != null) {
+            try {
+                JsonNode authNode = objectMapper.readTree(authConfig);
+                
+                switch (authType) {
+                    case "API_KEY":
+                        String apiKey = authNode.get("key").asText();
+                        String headerName = authNode.has("header") ? authNode.get("header").asText() : "X-API-Key";
+                        headers.add(headerName, apiKey);
+                        break;
+                        
+                    case "BASIC":
+                        String username = authNode.get("username").asText();
+                        String password = authNode.get("password").asText();
+                        String credentials = java.util.Base64.getEncoder()
+                                .encodeToString((username + ":" + password).getBytes());
+                        headers.add("Authorization", "Basic " + credentials);
+                        break;
+                        
+                    case "BEARER":
+                        String token = authNode.get("token").asText();
+                        headers.add("Authorization", "Bearer " + token);
+                        break;
+                }
+            } catch (Exception e) {
+                log.error("添加认证头失败: {}", e.getMessage());
+            }
+        }
+    }
+    
+    /**
+     * 构建统一响应格式
+     */
+    private String buildUnifiedResponse(String responseBody, InterfaceInfo interfaceInfo, boolean success, String errorMessage) {
+        try {
+            Map<String, Object> response = new HashMap<>();
+            
+            if (success) {
+                response.put("code", 200);
+                response.put("message", "调用成功");
+                
+                // 尝试解析JSON响应
+                try {
+                    Object data = objectMapper.readValue(responseBody, Object.class);
+                    response.put("data", data);
+                } catch (Exception e) {
+                    // 如果不是JSON，直接返回字符串
+                    response.put("data", responseBody);
+                }
+            } else {
+                response.put("code", 500);
+                response.put("message", "接口调用失败: " + errorMessage);
+                response.put("data", null);
+            }
+            
+            // 添加元信息
+            response.put("interfaceId", interfaceInfo.getId());
+            response.put("interfaceName", interfaceInfo.getName());
+            response.put("timestamp", System.currentTimeMillis());
+            
+            return objectMapper.writeValueAsString(response);
+        } catch (Exception e) {
+            log.error("构建响应格式失败", e);
+            return "{\"code\":500,\"message\":\"系统错误\",\"data\":null}";
+        }
+    }
+    
+    /**
+     * 异步更新调用统计
+     */
+    private void updateCallStats(Long interfaceId, Long userId) {
+        try {
+            innerUserInterfaceInfoService.invokeCount(interfaceId, userId);
+        } catch (Exception e) {
+            log.error("更新调用统计失败", e);
+        }
+    }
+    
+    /**
+     * 处理代理错误
+     */
+    private Mono<Void> handleProxyError(ServerHttpResponse response, String message) {
+        try {
+            Map<String, Object> errorResponse = new HashMap<>();
+            errorResponse.put("code", 500);
+            errorResponse.put("message", message);
+            errorResponse.put("data", null);
+            errorResponse.put("timestamp", System.currentTimeMillis());
+            
+            String errorJson = objectMapper.writeValueAsString(errorResponse);
+            return writeErrorResponse(response, errorJson);
+        } catch (Exception e) {
+            log.error("构建错误响应失败", e);
+            return response.setComplete();
+        }
+    }
+    
+    /**
+     * 写入错误响应
+     */
+    private Mono<Void> writeErrorResponse(ServerHttpResponse response, String errorJson) {
+        response.setStatusCode(HttpStatus.INTERNAL_SERVER_ERROR);
+        response.getHeaders().add("Content-Type", "application/json;charset=UTF-8");
+        DataBuffer buffer = response.bufferFactory().wrap(errorJson.getBytes(StandardCharsets.UTF_8));
+        return response.writeWith(Mono.just(buffer));
     }
 
     @Override
