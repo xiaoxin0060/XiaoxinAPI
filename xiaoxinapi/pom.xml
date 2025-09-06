@@ -18,6 +18,11 @@
         <java.version>17</java.version>
     </properties>
     <dependencies>
+        <!-- 密码加密：BCrypt -->
+        <dependency>
+            <groupId>org.springframework.security</groupId>
+            <artifactId>spring-security-crypto</artifactId>
+        </dependency>
         <dependency>
             <groupId>com.xiaoxin</groupId>
             <artifactId>xiaoxinapi-common</artifactId>

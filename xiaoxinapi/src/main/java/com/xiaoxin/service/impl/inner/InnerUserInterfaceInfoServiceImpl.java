@@ -25,5 +25,12 @@ public class InnerUserInterfaceInfoServiceImpl implements InnerUserInterfaceInfo
         return userInterfaceInfoService.invokeCount(interfaceInfoId, userId);
     }
 
+    @Override
+    public boolean preConsume(long interfaceInfoId, long userId) {
+        return userInterfaceInfoService.preConsume(interfaceInfoId, userId);
+    }
+
+    // 成功统计改回 invokeCount 统一语义（仅 totalNum +1）
+
 
 }

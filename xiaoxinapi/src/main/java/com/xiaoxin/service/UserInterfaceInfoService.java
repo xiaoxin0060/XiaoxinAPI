@@ -13,4 +13,11 @@ public interface UserInterfaceInfoService extends IService<UserInterfaceInfo>{
     void validUserInterfaceInfo(UserInterfaceInfo userInterfaceInfo, boolean add);
 
     boolean invokeCount(long interfaceInfoId, long userId);
+
+    /**
+     * 预扣减一次调用（leftNum>0 才执行），返回是否成功
+     */
+    boolean preConsume(long interfaceInfoId, long userId);
+
+    // 记录成功调用改为沿用 invokeCount（仅 totalNum + 1）
 }

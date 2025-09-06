@@ -10,7 +10,8 @@ import lombok.AllArgsConstructor;
 import java.util.HashMap;
 import java.util.Map;
 
-import static com.xiaoxin.sdk.utils.SignUtils.genSign;
+import static com.xiaoxin.sdk.utils.SignUtils.hmacSha256Hex;
+import static com.xiaoxin.sdk.utils.SignUtils.sha256Hex;
 
 /**
  * 小新API客户端 - 企业级统一接口调用SDK
@@ -72,14 +73,14 @@ public class XiaoxinApiClient {
      */
     private String handleGetRequest(String path, Object requestParams) {
         Map<String, Object> queryParams = convertToQueryParams(requestParams);
-        Map<String, String> headers = createAuthHeaders(""); // GET请求body为空
+        Map<String, String> headers = createAuthHeaders("", path, "GET"); // GET：空Body
         
         String result = HttpUtil.createGet(GATEWAY_HOST + path)
                 .addHeaders(headers)
                 .form(queryParams)
                 .execute()
                 .body();
-                
+
         System.out.printf("GET %s -> 成功 (%d字符)%n", path, result.length());
         return result;
     }
@@ -89,7 +90,7 @@ public class XiaoxinApiClient {
      */
     private String handleNonGetRequest(String path, String method, Object requestParams) {
         String jsonBody = convertToJsonBody(requestParams);
-        Map<String, String> headers = createAuthHeaders(jsonBody);
+        Map<String, String> headers = createAuthHeaders(jsonBody, path, method);
         
         HttpRequest request = createHttpRequest(method, path);
         
@@ -117,14 +118,28 @@ public class XiaoxinApiClient {
     /**
      * 创建认证请求头
      */
-    private Map<String, String> createAuthHeaders(String body) {
+    private Map<String, String> createAuthHeaders(String body, String path, String method) {
         Map<String, String> headers = new HashMap<>();
         headers.put("accessKey", accessKey);
-        headers.put("nonce", RandomUtil.randomNumbers(4));
-        headers.put("body", body);
-        headers.put("timestamp", String.valueOf(System.currentTimeMillis() / 1000));
-        headers.put("sign", genSign(body, secretKey));
+        headers.put("nonce", RandomUtil.randomString(16));
+        String timestamp = String.valueOf(System.currentTimeMillis() / 1000);
+        headers.put("timestamp", timestamp);
+        String contentSha256 = sha256Hex(body);
+        headers.put("x-content-sha256", contentSha256);
+        headers.put("x-sign-version", "v2");
+        String canonical = buildCanonicalString(method, path, contentSha256, timestamp, headers.get("nonce"));
+        headers.put("sign", hmacSha256Hex(canonical, secretKey));
         return headers;
+    }
+
+    private String buildCanonicalString(String method, String path, String contentSha256, String timestamp, String nonce) {
+        String m = method == null ? "" : method.toUpperCase();
+        String p = path == null ? "" : path;
+        String cs = contentSha256 == null ? "" : contentSha256;
+        String ts = timestamp == null ? "" : timestamp;
+        String n = nonce == null ? "" : nonce;
+        // v2: method + path + contentSha256 + timestamp + nonce（不含query，简化且两端一致）
+        return m + "\n" + p + "\n" + cs + "\n" + ts + "\n" + n;
     }
     
     /**
@@ -218,8 +233,7 @@ public class XiaoxinApiClient {
         }
         
         try {
-            if (params instanceof String) {
-                String paramStr = (String) params;
+            if (params instanceof String paramStr) {
                 if (JSONUtil.isTypeJSON(paramStr)) {
                     // 已经是JSON格式，直接使用
                     return paramStr;

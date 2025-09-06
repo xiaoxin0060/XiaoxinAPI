@@ -46,10 +46,24 @@ public class UserInterfaceInfoServiceImpl extends ServiceImpl<UserInterfaceInfoM
         UpdateWrapper<UserInterfaceInfo> updateWrapper = new UpdateWrapper<>();
         updateWrapper.eq("interfaceInfoId", interfaceInfoId);
         updateWrapper.eq("userId", userId);
-        updateWrapper.gt("leftNum", 0);
-        updateWrapper.setSql("leftNum = leftNum - 1, totalNum = totalNum + 1");
+        // 仅记录成功次数 +1（预扣在 preConsume 已经完成）
+        updateWrapper.setSql("totalNum = totalNum + 1");
         return this.update(updateWrapper);
     }
+
+    @Override
+    public boolean preConsume(long interfaceInfoId, long userId) {
+        if (interfaceInfoId <= 0 || userId <= 0) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR);
+        }
+        UpdateWrapper<UserInterfaceInfo> updateWrapper = new UpdateWrapper<>();
+        updateWrapper.eq("interfaceInfoId", interfaceInfoId);
+        updateWrapper.eq("userId", userId);
+        updateWrapper.gt("leftNum", 0);
+        updateWrapper.setSql("leftNum = leftNum - 1");
+        return this.update(updateWrapper);
+    }
+
 }
 
 

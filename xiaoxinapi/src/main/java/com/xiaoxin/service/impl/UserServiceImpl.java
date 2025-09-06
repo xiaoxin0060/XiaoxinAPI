@@ -11,6 +11,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Service;
 import org.springframework.util.DigestUtils;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.data.redis.core.StringRedisTemplate;
 
 import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpServletRequest;
@@ -31,10 +33,18 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
     @Resource
     private UserMapper userMapper;
 
+    @Resource
+    private StringRedisTemplate stringRedisTemplate;
+
     /**
      * 盐值，混淆密码
      */
-    private static final String SALT = "xiaoxin";
+    private static final String SALT = "xiaoxin"; // 旧版MD5盐，仅用于兼容一次性迁移
+
+    private static final BCryptPasswordEncoder PASSWORD_ENCODER = new BCryptPasswordEncoder();
+
+    private static final int MAX_LOGIN_FAIL = 5;
+    private static final long LOCK_MINUTES = 10L;
 
     @Override
     public long userRegister(String userAccount, String userPassword, String checkPassword) {
@@ -60,8 +70,8 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
             if (count > 0) {
                 throw new BusinessException(ErrorCode.PARAMS_ERROR, "账号重复");
             }
-            // 2. 加密
-            String encryptPassword = DigestUtils.md5DigestAsHex((SALT + userPassword).getBytes());
+            // 2. 加密（使用BCrypt）
+            String encryptPassword = PASSWORD_ENCODER.encode(userPassword);
             // 3. 插入数据
             User user = new User();
             user.setUserAccount(userAccount);
@@ -86,21 +96,62 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
         if (userPassword.length() < 8) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "密码错误");
         }
-        // 2. 加密
-        String encryptPassword = DigestUtils.md5DigestAsHex((SALT + userPassword).getBytes());
-        // 查询用户是否存在
+        // 登录失败限制（滑动窗口）
+        String failKey = "login:fail:" + userAccount;
+        String failStr = stringRedisTemplate.opsForValue().get(failKey);
+        if (failStr != null) {
+            try {
+                int fail = Integer.parseInt(failStr);
+                if (fail >= MAX_LOGIN_FAIL) {
+                    throw new BusinessException(ErrorCode.OPERATION_ERROR, "账户暂时被锁定，请稍后再试");
+                }
+            } catch (NumberFormatException ignored) {}
+        }
+
+        // 2. 查询用户（先按账号查，再做密码校验）
         QueryWrapper<User> queryWrapper = new QueryWrapper<>();
         queryWrapper.eq("userAccount", userAccount);
-        queryWrapper.eq("userPassword", encryptPassword);
         User user = userMapper.selectOne(queryWrapper);
-        // 用户不存在
         if (user == null) {
-            log.info("user login failed, userAccount cannot match userPassword");
+            recordLoginFail(failKey);
+            log.info("用户登录失败：账号不存在");
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "用户不存在或密码错误");
         }
-        // 3. 记录用户的登录态
+
+        // 3. 校验密码（优先BCrypt，兼容一次性MD5迁移）
+        boolean pass = PASSWORD_ENCODER.matches(userPassword, user.getUserPassword());
+        if (!pass) {
+            String legacyMd5 = DigestUtils.md5DigestAsHex((SALT + userPassword).getBytes());
+            if (legacyMd5.equals(user.getUserPassword())) {
+                // 一次性迁移为BCrypt
+                String newHash = PASSWORD_ENCODER.encode(userPassword);
+                user.setUserPassword(newHash);
+                this.updateById(user);
+                pass = true;
+            }
+        }
+        if (!pass) {
+            recordLoginFail(failKey);
+            log.info("用户登录失败：密码不匹配");
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "用户不存在或密码错误");
+        }
+
+        // 清理失败计数
+        stringRedisTemplate.delete(failKey);
+        // 4. 记录用户的登录态
         request.getSession().setAttribute(USER_LOGIN_STATE, user);
         return user;
+    }
+
+    private void recordLoginFail(String failKey) {
+        try {
+            Long val = stringRedisTemplate.opsForValue().increment(failKey);
+            if (val != null && val == 1L) {
+                stringRedisTemplate.expire(failKey, java.time.Duration.ofMinutes(LOCK_MINUTES));
+            }
+        } catch (Exception e) {
+            log.warn("记录登录失败次数出错", e);
+        }
     }
 
     /**
