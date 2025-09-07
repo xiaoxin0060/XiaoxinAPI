@@ -13,15 +13,15 @@ public class Knife4jConfiguration{
     public OpenAPI openAPI() {
         return new OpenAPI()
                 .info(new Info()
-                        .title("后端模板项目")
+                        .title("小新接口开发平台")
                         .version("1.0")
-                        .description("后端模板项目的接口文档"));
+                        .description("小新接口开发平台的接口文档"));
     }
     @Bean
     public GroupedOpenApi authAPI() {
         return GroupedOpenApi.builder()
                              .group("功能管理")
-                             .pathsToMatch("/user/**","/post/**","/interfaceInfo/**")
+                             .pathsToMatch("/user/**","/post/**","/interfaceInfo/**","/userInterfaceInfo/**")
                              .build();
     }
 }

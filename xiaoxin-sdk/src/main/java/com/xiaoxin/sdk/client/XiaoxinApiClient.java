@@ -5,7 +5,7 @@ import cn.hutool.http.HttpRequest;
 import cn.hutool.http.HttpResponse;
 import cn.hutool.http.HttpUtil;
 import cn.hutool.json.JSONUtil;
-import lombok.AllArgsConstructor;
+ 
 
 import java.util.HashMap;
 import java.util.Map;
@@ -24,13 +24,34 @@ import static com.xiaoxin.sdk.utils.SignUtils.sha256Hex;
  * 
  * @author xiaoxin
  */
-@AllArgsConstructor
 public class XiaoxinApiClient {
     
     private final String accessKey;
     private final String secretKey;
-    
-    private static final String GATEWAY_HOST = "http://localhost:9999";
+    private final String host;
+
+    public XiaoxinApiClient(String accessKey, String secretKey) {
+        this(accessKey, secretKey, "http://localhost:9999");
+    }
+
+    public XiaoxinApiClient(String accessKey, String secretKey, String host) {
+        this.accessKey = accessKey;
+        this.secretKey = secretKey;
+        this.host = (host == null || host.isBlank()) ? "http://localhost:9999" : host;
+    }
+
+    public static Builder builder() { return new Builder(); }
+
+    public static class Builder {
+        private String accessKey;
+        private String secretKey;
+        private String host = "http://localhost:9999";
+
+        public Builder accessKey(String ak) { this.accessKey = ak; return this; }
+        public Builder secretKey(String sk) { this.secretKey = sk; return this; }
+        public Builder host(String host) { this.host = host; return this; }
+        public XiaoxinApiClient build() { return new XiaoxinApiClient(accessKey, secretKey, host); }
+    }
 
     /**
      * 统一接口调用方法
@@ -75,7 +96,7 @@ public class XiaoxinApiClient {
         Map<String, Object> queryParams = convertToQueryParams(requestParams);
         Map<String, String> headers = createAuthHeaders("", path, "GET"); // GET：空Body
         
-        String result = HttpUtil.createGet(GATEWAY_HOST + path)
+        String result = HttpUtil.createGet(host + path)
                 .addHeaders(headers)
                 .form(queryParams)
                 .execute()
@@ -105,7 +126,7 @@ public class XiaoxinApiClient {
      * 创建HTTP请求对象
      */
     private HttpRequest createHttpRequest(String method, String path) {
-        String url = GATEWAY_HOST + path;
+        String url = host + path;
         
         return switch (method.toUpperCase()) {
             case "POST" -> HttpRequest.post(url);
@@ -245,14 +266,52 @@ public class XiaoxinApiClient {
                 }
             } else {
                 // 对象类型，直接序列化为JSON
-                return JSONUtil.toJsonStr(params);
+                String raw = JSONUtil.toJsonStr(params);
+                return canonicalizeJson(raw);
             }
         } catch (Exception e) {
             System.err.printf("JSON转换失败，使用容错处理: %s%n", e.getMessage());
             // 容错处理：包装为简单JSON
             Map<String, Object> wrapper = new HashMap<>();
             wrapper.put("value", params.toString());
+            return canonicalizeJson(JSONUtil.toJsonStr(wrapper));
+        }
+    }
+
+    // 固定签名 JSON 规范：对 JSON 对象按照键名字典序递归排序；数组顺序保持不变
+    private String canonicalizeJson(String json) {
+        if (json == null || json.isBlank()) return "{}";
+        try {
+            if (JSONUtil.isTypeJSON(json)) {
+                Object node = JSONUtil.parse(json);
+                Object normalized = normalizeNode(node);
+                return JSONUtil.toJsonStr(normalized);
+            }
+            // 非 JSON 字符串：作为 value 包装
+            Map<String, Object> wrapper = new HashMap<>();
+            wrapper.put("value", json);
             return JSONUtil.toJsonStr(wrapper);
+        } catch (Exception e) {
+            return json; // 失败时返回原文，避免中断
+        }
+    }
+
+    private Object normalizeNode(Object node) {
+        if (node instanceof cn.hutool.json.JSONObject obj) {
+            java.util.TreeMap<String, Object> sorted = new java.util.TreeMap<>();
+            for (String key : obj.keySet()) {
+                Object val = obj.get(key);
+                sorted.put(key, normalizeNode(val));
+            }
+            java.util.LinkedHashMap<String, Object> ordered = new java.util.LinkedHashMap<>();
+            sorted.forEach(ordered::put);
+            return ordered;
+        } else if (node instanceof cn.hutool.json.JSONArray arr) {
+            java.util.List<Object> list = new java.util.ArrayList<>();
+            for (Object v : arr) { list.add(normalizeNode(v)); }
+            return list;
+        } else {
+            return node;
         }
     }
 }

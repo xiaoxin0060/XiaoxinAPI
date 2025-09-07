@@ -25,6 +25,7 @@ import org.apache.commons.lang3.StringUtils;
 import org.springdoc.core.annotations.ParameterObject;
 import org.springframework.beans.BeanUtils;
 import org.springframework.web.bind.annotation.*;
+import com.xiaoxin.model.dto.userInterfaceInfo.UserInterfaceInfoAddQuotaRequest;
 
 import java.util.List;
 
@@ -34,7 +35,7 @@ import java.util.List;
 @RestController
 @RequestMapping("/userInterfaceInfo")
 @Slf4j
-@Tag(name = "API功能")
+@Tag(name = "用户接口功能")
 public class UserInterfaceInfoController{
 
     @Resource
@@ -205,5 +206,25 @@ public class UserInterfaceInfoController{
     }
 
     // endregion
+
+    /**
+     * 管理员/本人增加接口调用额度
+     */
+    @Operation(summary = "增加接口调用额度")
+    @PostMapping("/addQuota")
+    public BaseResponse<Boolean> addQuota(@RequestBody UserInterfaceInfoAddQuotaRequest req,
+                                          HttpServletRequest request) {
+        if (req == null || req.getUserId() == null || req.getInterfaceInfoId() == null || req.getAddCount() == null
+                || req.getUserId() <= 0 || req.getInterfaceInfoId() <= 0 || req.getAddCount() <= 0) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR);
+        }
+        User loginUser = userService.getLoginUser(request);
+        // 仅本人或管理员可操作
+        if (!loginUser.getId().equals(req.getUserId()) && !userService.isAdmin(request)) {
+            throw new BusinessException(ErrorCode.NO_AUTH_ERROR);
+        }
+        boolean ok = userInterfaceInfoService.addQuota(req.getInterfaceInfoId(), req.getUserId(), req.getAddCount());
+        return ResultUtils.success(ok);
+    }
 
 }

@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.extension.service.IService;
 import model.entity.User;
 
 import jakarta.servlet.http.HttpServletRequest;
+import java.util.Map;
 
 /**
  * 用户服务
@@ -55,4 +56,11 @@ public interface UserService extends IService<User> {
      * @return
      */
     boolean userLogout(HttpServletRequest request);
+
+    /**
+     * 管理员重置指定用户的 AK/SK
+     * @param userId 目标用户ID
+     * @return 新的 AK/SK（SK 为一次性返回的明文）
+     */
+    Map<String, String> resetAkSk(long userId);
 }

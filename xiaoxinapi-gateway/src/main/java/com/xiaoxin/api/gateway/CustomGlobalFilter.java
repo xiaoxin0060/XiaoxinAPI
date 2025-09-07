@@ -21,6 +21,9 @@ import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Mono;
 import org.springframework.data.domain.Range;
 import org.springframework.data.redis.core.ReactiveStringRedisTemplate;
+import org.springframework.beans.factory.annotation.Value;
+import util.CryptoUtils;
+import java.util.Base64;
 import service.InnerInterfaceInfoService;
 import service.InnerUserInterfaceInfoService;
 import service.InnerUserService;
@@ -44,6 +47,8 @@ public class CustomGlobalFilter implements GlobalFilter, Ordered{
     private final WebClient webClient;
     private final ObjectMapper objectMapper;
     private final ReactiveStringRedisTemplate redisTemplate;
+    @Value("${security.authcfg.master-key:}")
+    private String authcfgMasterKey;
 
     private static final List<String> IP_WHITE_LIST = Arrays.asList("127.0.0.1","0:0:0:0:0:0:0:1");
     
@@ -103,8 +108,16 @@ public class CustomGlobalFilter implements GlobalFilter, Ordered{
         if (invokeUser == null) {
             return handleNoAuth(response);
         }
-        if(nonce != null && Long.parseLong(nonce) > 10000L){
+        // v2 随机字符串 nonce：SDK 固定 16 位，这里做长度=16 与字符集校验
+        if (nonce == null || nonce.length() != 16) {
             return handleNoAuth(response);
+        }
+        // 可选：限制字符集为字母数字
+        for (int i = 0; i < nonce.length(); i++) {
+            char c = nonce.charAt(i);
+            if (!(c >= '0' && c <= '9') && !(c >= 'a' && c <= 'z') && !(c >= 'A' && c <= 'Z')) {
+                return handleNoAuth(response);
+            }
         }
         // 时间和当前时间不能超过 5 分钟
         long currentTime = System.currentTimeMillis() / 1000;
@@ -314,7 +327,16 @@ public class CustomGlobalFilter implements GlobalFilter, Ordered{
         
         if (!"NONE".equals(authType) && authConfig != null) {
             try {
-                JsonNode authNode = objectMapper.readTree(authConfig);
+                String plainCfg = authConfig;
+                if (CryptoUtils.isEncrypted(authConfig)) {
+                    if (authcfgMasterKey == null || authcfgMasterKey.isBlank()) {
+                        throw new IllegalStateException("未配置认证配置主密钥");
+                    }
+                    String aadStr = safeStr(interfaceInfo.getProviderUrl()) + "|" + safeStr(interfaceInfo.getUrl()) + "|" + safeStr(interfaceInfo.getMethod());
+                    plainCfg = CryptoUtils.aesGcmDecryptToString(authcfgMasterKey.getBytes(java.nio.charset.StandardCharsets.UTF_8),
+                            aadStr.getBytes(java.nio.charset.StandardCharsets.UTF_8), authConfig);
+                }
+                JsonNode authNode = objectMapper.readTree(plainCfg);
                 
                 switch (authType) {
                     case "API_KEY":
@@ -326,7 +348,7 @@ public class CustomGlobalFilter implements GlobalFilter, Ordered{
                     case "BASIC":
                         String username = authNode.get("username").asText();
                         String password = authNode.get("password").asText();
-                        String credentials = java.util.Base64.getEncoder()
+                        String credentials = Base64.getEncoder()
                                 .encodeToString((username + ":" + password).getBytes());
                         headers.add("Authorization", "Basic " + credentials);
                         break;
@@ -340,6 +362,10 @@ public class CustomGlobalFilter implements GlobalFilter, Ordered{
                 log.error("添加认证头失败: {}", e.getMessage());
             }
         }
+    }
+
+    private String safeStr(String s){
+        return s == null ? "" : s;
     }
     
     /**
@@ -382,13 +408,7 @@ public class CustomGlobalFilter implements GlobalFilter, Ordered{
     /**
      * 异步更新调用统计
      */
-    private void updateCallStats(Long interfaceId, Long userId) {
-        try {
-            innerUserInterfaceInfoService.invokeCount(interfaceId, userId);
-        } catch (Exception e) {
-            log.error("更新调用统计失败", e);
-        }
-    }
+    // 删除未使用的统计方法，改由成功回调直接调用 invokeCount
     
     /**
      * 处理代理错误

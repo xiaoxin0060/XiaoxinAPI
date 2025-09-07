@@ -29,6 +29,8 @@ import org.springdoc.core.annotations.ParameterObject;
 import org.springframework.beans.BeanUtils;
 import org.springframework.web.bind.annotation.*;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.beans.factory.annotation.Value;
+import util.CryptoUtils;
 
 import java.util.List;
 
@@ -48,10 +50,10 @@ public class InterfaceInfoController{
     private UserService userService;
 
     @Resource
-    private XiaoxinApiClient xiaoxinApiClient;
-    
-    @Resource
     private ObjectMapper objectMapper;
+
+    @Value("${security.authcfg.master-key:}")
+    private String authcfgMasterKey;
 
     // region 增删改查
 
@@ -159,6 +161,41 @@ public class InterfaceInfoController{
         }
         InterfaceInfo interfaceInfo = interfaceInfoService.getById(id);
         return ResultUtils.success(interfaceInfo);
+    }
+
+    /**
+     * 根据 id 获取（含解密后的认证配置，仅管理员）
+     */
+    @Operation(summary = "根据 id 获取（含解密认证配置）")
+    @AuthCheck(mustRole = "admin")
+    @GetMapping("/get/decrypted")
+    public BaseResponse<InterfaceInfo> getInterfaceInfoDecrypted(long id){
+        if(id <= 0){
+            throw new BusinessException(ErrorCode.PARAMS_ERROR);
+        }
+        InterfaceInfo info = interfaceInfoService.getById(id);
+        if (info == null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND_ERROR);
+        }
+        try {
+            String cfg = info.getAuthConfig();
+            String authType = info.getAuthType();
+            if (authcfgMasterKey != null && !authcfgMasterKey.isBlank()
+                    && cfg != null && !"NONE".equalsIgnoreCase(authType)
+                    && CryptoUtils.isEncrypted(cfg)) {
+                String aad = safeStr(info.getProviderUrl()) + "|" + safeStr(info.getUrl()) + "|" + safeStr(info.getMethod());
+                String plain = CryptoUtils.aesGcmDecryptToString(authcfgMasterKey.getBytes(java.nio.charset.StandardCharsets.UTF_8),
+                        aad.getBytes(java.nio.charset.StandardCharsets.UTF_8), cfg);
+                info.setAuthConfig(plain);
+            }
+        } catch (Exception e) {
+            log.warn("解密认证配置失败: {}", e.getMessage());
+        }
+        return ResultUtils.success(info);
+    }
+
+    private String safeStr(String s){
+        return s == null ? "" : s;
     }
 
     /**

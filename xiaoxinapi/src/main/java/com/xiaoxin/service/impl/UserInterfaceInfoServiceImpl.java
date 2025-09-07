@@ -64,6 +64,18 @@ public class UserInterfaceInfoServiceImpl extends ServiceImpl<UserInterfaceInfoM
         return this.update(updateWrapper);
     }
 
+    @Override
+    public boolean addQuota(long interfaceInfoId, long userId, int addCount) {
+        if (interfaceInfoId <= 0 || userId <= 0 || addCount <= 0) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR);
+        }
+        UpdateWrapper<UserInterfaceInfo> updateWrapper = new UpdateWrapper<>();
+        updateWrapper.eq("interfaceInfoId", interfaceInfoId);
+        updateWrapper.eq("userId", userId);
+        updateWrapper.setSql("leftNum = leftNum + " + addCount);
+        return this.update(updateWrapper);
+    }
+
 }
 
 

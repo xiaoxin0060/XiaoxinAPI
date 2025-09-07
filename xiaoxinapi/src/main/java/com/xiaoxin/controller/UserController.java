@@ -18,11 +18,14 @@ import org.apache.commons.lang3.StringUtils;
 import org.springdoc.core.annotations.ParameterObject;
 import org.springframework.beans.BeanUtils;
 import org.springframework.web.bind.annotation.*;
+import com.xiaoxin.annotation.AuthCheck;
 
 import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpServletRequest;
 import java.util.List;
 import java.util.stream.Collectors;
+import java.util.Map;
+import java.util.HashMap;
 
 /**
  * 用户接口
@@ -179,12 +182,11 @@ public class UserController {
      * 根据 id 获取用户
      *
      * @param id
-     * @param request
      * @return
      */
     @Operation(summary = "根据 id 获取用户")
     @GetMapping("/get")
-    public BaseResponse<UserVO> getUserById(int id, HttpServletRequest request) {
+    public BaseResponse<UserVO> getUserById(int id) {
         if (id <= 0) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR);
         }
@@ -198,12 +200,11 @@ public class UserController {
      * 获取用户列表
      *
      * @param userQueryRequest
-     * @param request
      * @return
      */
     @Operation(summary = "获取用户列表")
     @GetMapping("/list")
-    public BaseResponse<List<UserVO>> listUser(@ParameterObject UserQueryRequest userQueryRequest, HttpServletRequest request) {
+    public BaseResponse<List<UserVO>> listUser(@ParameterObject UserQueryRequest userQueryRequest) {
         User userQuery = new User();
         if (userQueryRequest != null) {
             BeanUtils.copyProperties(userQueryRequest, userQuery);
@@ -222,12 +223,11 @@ public class UserController {
      * 分页获取用户列表
      *
      * @param userQueryRequest
-     * @param request
      * @return
      */
     @Operation(summary = "分页获取用户列表")
     @GetMapping("/list/page")
-    public BaseResponse<Page<UserVO>> listUserByPage(@ParameterObject UserQueryRequest userQueryRequest, HttpServletRequest request) {
+    public BaseResponse<Page<UserVO>> listUserByPage(@ParameterObject UserQueryRequest userQueryRequest) {
         long current = 1;
         long size = 10;
         User userQuery = new User();
@@ -246,6 +246,64 @@ public class UserController {
         }).collect(Collectors.toList());
         userVOPage.setRecords(userVOList);
         return ResultUtils.success(userVOPage);
+    }
+
+    // endregion
+
+    // region 管理员运维
+
+    /**
+     * 管理员重置用户 AK/SK（一次性展示明文SK）
+     */
+    @Operation(summary = "管理员重置用户 AK/SK")
+    @AuthCheck(mustRole = "admin")
+    @PostMapping("/resetAkSk")
+    public BaseResponse<Map<String, String>> resetAkSk(@RequestParam long userId) {
+        Map<String, String> result = userService.resetAkSk(userId);
+        return ResultUtils.success(result);
+    }
+
+    // endregion
+
+    // region AK/SK 脱敏查询
+
+    /**
+     * 获取（当前或指定）用户 AK/SK（脱敏）
+     * - 默认返回当前登录用户的脱敏 AK/SK
+     * - 仅管理员可指定 userId 查看其他用户
+     */
+    @Operation(summary = "获取用户 AK/SK（脱敏）")
+    @GetMapping("/aksk/masked")
+    public BaseResponse<Map<String, String>> getMaskedAkSk(@RequestParam(required = false) Long userId,
+                                                           HttpServletRequest request) {
+        User loginUser = userService.getLoginUser(request);
+        long targetUserId = (userId == null) ? loginUser.getId() : userId;
+        if (userId != null && !loginUser.getId().equals(userId) && !userService.isAdmin(request)) {
+            throw new BusinessException(ErrorCode.NO_AUTH_ERROR);
+        }
+        User target = userService.getById(targetUserId);
+        if (target == null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND_ERROR, "目标用户不存在");
+        }
+        Map<String, String> res = new HashMap<>();
+        res.put("accessKey", maskKey(target.getAccessKey()));
+        res.put("secretKey", maskKey(target.getSecretKey()));
+        return ResultUtils.success(res);
+    }
+
+    private String maskKey(String key) {
+        if (key == null || key.isEmpty()) return "";
+        int len = key.length();
+        if (len <= 8) {
+            int left = Math.max(1, len / 4);
+            String head = key.substring(0, left);
+            String tail = key.substring(len - left);
+            return head + "***" + tail;
+        } else {
+            String head = key.substring(0, 4);
+            String tail = key.substring(len - 4);
+            return head + "********" + tail;
+        }
     }
 
     // endregion

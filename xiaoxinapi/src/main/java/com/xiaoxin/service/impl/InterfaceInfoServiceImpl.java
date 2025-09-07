@@ -5,10 +5,13 @@ import com.xiaoxin.common.ErrorCode;
 import com.xiaoxin.exception.BusinessException;
 import model.entity.InterfaceInfo;
 import com.xiaoxin.service.InterfaceInfoService;
+import org.springframework.beans.factory.annotation.Value;
+import util.CryptoUtils;
 import com.xiaoxin.mapper.InterfaceInfoMapper;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Service;
 import java.util.Arrays;
+import java.nio.charset.StandardCharsets;
 
 /**
 * @author 小新
@@ -18,6 +21,9 @@ import java.util.Arrays;
 @Service
 public class InterfaceInfoServiceImpl extends ServiceImpl<InterfaceInfoMapper, InterfaceInfo>
     implements InterfaceInfoService{
+
+    @Value("${security.authcfg.master-key:}")
+    private String authcfgMasterKey;
 
     @Override
     public void validInterfaceInfo(InterfaceInfo interfaceInfo, boolean add){
@@ -100,6 +106,45 @@ public class InterfaceInfoServiceImpl extends ServiceImpl<InterfaceInfoMapper, I
         if (interfaceInfo.getVersion() == null) {
             interfaceInfo.setVersion("1.0.0");
         }
+    }
+
+    @Override
+    public boolean save(InterfaceInfo entity) {
+        processAuthConfig(entity);
+        return super.save(entity);
+    }
+
+    @Override
+    public boolean updateById(InterfaceInfo entity) {
+        processAuthConfig(entity);
+        return super.updateById(entity);
+    }
+
+    private void processAuthConfig(InterfaceInfo entity) {
+        try {
+            if (entity == null) return;
+            String authType = entity.getAuthType();
+            String cfg = entity.getAuthConfig();
+            if (StringUtils.isBlank(cfg) || StringUtils.isBlank(authType) || "NONE".equalsIgnoreCase(authType)) {
+                return;
+            }
+            if (StringUtils.isBlank(authcfgMasterKey)) {
+                return; // 未配置主密钥则不加密
+            }
+            if (CryptoUtils.isEncrypted(cfg)) {
+                return; // 已加密，跳过
+            }
+            String aadStr = safeStr(entity.getProviderUrl()) + "|" + safeStr(entity.getUrl()) + "|" + safeStr(entity.getMethod());
+            byte[] key = authcfgMasterKey.getBytes(StandardCharsets.UTF_8);
+            String enc = CryptoUtils.aesGcmEncryptFromString(key, aadStr.getBytes(StandardCharsets.UTF_8), cfg);
+            entity.setAuthConfig(enc);
+        } catch (Exception e) {
+            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "认证配置加密失败");
+        }
+    }
+
+    private String safeStr(String s){
+        return s == null ? "" : s;
     }
 }
 

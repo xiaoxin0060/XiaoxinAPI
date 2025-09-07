@@ -20,4 +20,7 @@ public interface UserInterfaceInfoService extends IService<UserInterfaceInfo>{
     boolean preConsume(long interfaceInfoId, long userId);
 
     // 记录成功调用改为沿用 invokeCount（仅 totalNum + 1）
+
+    /** 增加用户某接口的调用额度（leftNum += addCount） */
+    boolean addQuota(long interfaceInfoId, long userId, int addCount);
 }

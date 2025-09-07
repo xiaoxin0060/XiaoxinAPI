@@ -13,6 +13,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.DigestUtils;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.beans.factory.annotation.Value;
+import util.CryptoUtils;
 
 import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpServletRequest;
@@ -35,6 +37,9 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
 
     @Resource
     private StringRedisTemplate stringRedisTemplate;
+
+    @Value("${security.authcfg.master-key:}")
+    private String masterKey;
 
     /**
      * 盐值，混淆密码
@@ -76,6 +81,22 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
             User user = new User();
             user.setUserAccount(userAccount);
             user.setUserPassword(encryptPassword);
+            // 3.1 生成 AK / SK，并对 SK 加密落库
+            String accessKey = genKey("ak_", 24);
+            String secretKey = genKey("sk_", 40);
+            if (masterKey != null && !masterKey.isBlank()) {
+                try {
+                    String enc = CryptoUtils.aesGcmEncryptFromString(masterKey.getBytes(java.nio.charset.StandardCharsets.UTF_8), null, secretKey);
+                    user.setSecretKey(enc);
+                } catch (Exception e) {
+                    // 加密异常则回退明文（不阻断注册），但建议生产环境强制要求配置主密钥
+                    log.info("用户注册密钥加密失败，已回退为明文");
+                    user.setSecretKey(secretKey);
+                }
+            } else {
+                user.setSecretKey(secretKey);
+            }
+            user.setAccessKey(accessKey);
             boolean saveResult = this.save(user);
             if (!saveResult) {
                 throw new BusinessException(ErrorCode.SYSTEM_ERROR, "注册失败，数据库错误");
@@ -174,6 +195,14 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
         if (currentUser == null) {
             throw new BusinessException(ErrorCode.NOT_LOGIN_ERROR);
         }
+        // 解密返回 SK，避免控制台测试调用使用密文
+        try {
+            String sk = currentUser.getSecretKey();
+            if (sk != null && CryptoUtils.isEncrypted(sk) && masterKey != null && !masterKey.isBlank()) {
+                String plain = CryptoUtils.aesGcmDecryptToString(masterKey.getBytes(java.nio.charset.StandardCharsets.UTF_8), null, sk);
+                currentUser.setSecretKey(plain);
+            }
+        } catch (Exception ignored) {}
         return currentUser;
     }
 
@@ -191,6 +220,16 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
         return user != null && ADMIN_ROLE.equals(user.getUserRole());
     }
 
+    private String genKey(String prefix, int len) {
+        String alphabet = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+        java.security.SecureRandom r = new java.security.SecureRandom();
+        StringBuilder sb = new StringBuilder(len);
+        for (int i = 0; i < len; i++) {
+            sb.append(alphabet.charAt(r.nextInt(alphabet.length())));
+        }
+        return prefix + sb.toString();
+    }
+
     /**
      * 用户注销
      *
@@ -204,6 +243,38 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User>
         // 移除登录态
         request.getSession().removeAttribute(USER_LOGIN_STATE);
         return true;
+    }
+
+    @Override
+    public java.util.Map<String, String> resetAkSk(long userId) {
+        if (userId <= 0) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR);
+        }
+        User user = this.getById(userId);
+        if (user == null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND_ERROR, "目标用户不存在");
+        }
+        String newAk = genKey("ak_", 24);
+        String newSkPlain = genKey("sk_", 40);
+        String toSaveSk = newSkPlain;
+        if (masterKey != null && !masterKey.isBlank()) {
+            try {
+                toSaveSk = CryptoUtils.aesGcmEncryptFromString(masterKey.getBytes(java.nio.charset.StandardCharsets.UTF_8), null, newSkPlain);
+            } catch (Exception e) {
+                // 如果加密失败，出于一致性可选择中断；这里保守返回错误
+                throw new BusinessException(ErrorCode.SYSTEM_ERROR, "重置密钥失败，请稍后再试");
+            }
+        }
+        user.setAccessKey(newAk);
+        user.setSecretKey(toSaveSk);
+        boolean ok = this.updateById(user);
+        if (!ok) {
+            throw new BusinessException(ErrorCode.SYSTEM_ERROR, "重置密钥失败，请稍后再试");
+        }
+        java.util.Map<String, String> res = new java.util.HashMap<>();
+        res.put("accessKey", newAk);
+        res.put("secretKey", newSkPlain); // 仅一次性返回明文
+        return res;
     }
 
 }

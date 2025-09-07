@@ -10,6 +10,9 @@ import model.entity.User;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.dubbo.config.annotation.DubboService;
 import service.InnerUserService;
+import org.springframework.beans.factory.annotation.Value;
+import util.CryptoUtils;
+import java.nio.charset.StandardCharsets;
 
 /**
  * 内部用户服务
@@ -19,6 +22,9 @@ public class InnerUserServiceImpl implements InnerUserService{
 
     @Resource
     private UserMapper userMapper;
+
+    @Value("${security.authcfg.master-key:}")
+    private String masterKey;
 
     /**
      * 数据库中查是否已分配给用户秘钥（accessKey）
@@ -32,6 +38,15 @@ public class InnerUserServiceImpl implements InnerUserService{
         }
         QueryWrapper<User> queryWrapper = new QueryWrapper<>();
         queryWrapper.eq("accessKey", accessKey);
-        return userMapper.selectOne(queryWrapper);
+        User user = userMapper.selectOne(queryWrapper);
+        if (user == null) return null;
+        try {
+            String sk = user.getSecretKey();
+            if (sk != null && CryptoUtils.isEncrypted(sk) && masterKey != null && !masterKey.isBlank()) {
+                String plain = CryptoUtils.aesGcmDecryptToString(masterKey.getBytes(StandardCharsets.UTF_8), null, sk);
+                user.setSecretKey(plain);
+            }
+        } catch (Exception ignored) {}
+        return user;
     }
 }
