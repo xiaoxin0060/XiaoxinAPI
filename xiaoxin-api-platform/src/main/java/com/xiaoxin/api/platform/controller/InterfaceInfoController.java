@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.xiaoxin.api.platform.annotation.AuthCheck;
 import com.xiaoxin.api.platform.common.*;
 import com.xiaoxin.api.platform.constant.CommonConstant;
+import com.xiaoxin.api.platform.context.UserContextHolder;
 import com.xiaoxin.api.platform.exception.BusinessException;
 import com.xiaoxin.api.platform.model.dto.interfaceinfo.InterfaceInfoAddRequest;
 import com.xiaoxin.api.platform.model.dto.interfaceinfo.InterfaceInfoInvokeRequest;
@@ -21,7 +22,6 @@ import com.xiaoxin.client.sdk.client.XiaoxinApiClient;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.annotation.Resource;
-import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.springdoc.core.annotations.ParameterObject;
@@ -61,13 +61,13 @@ public class InterfaceInfoController{
      * 创建
      *
      * @param interfaceInfoAddRequest
-     * @param request
+     *
      * @return
      */
     @Operation(summary = "创建")
     @PostMapping("/add")
     public BaseResponse<Long> addInterfaceInfo(
-            @RequestBody InterfaceInfoAddRequest interfaceInfoAddRequest, HttpServletRequest request){
+            @RequestBody InterfaceInfoAddRequest interfaceInfoAddRequest){
         if(interfaceInfoAddRequest == null){
             throw new BusinessException(ErrorCode.PARAMS_ERROR);
         }
@@ -75,7 +75,7 @@ public class InterfaceInfoController{
         BeanUtils.copyProperties(interfaceInfoAddRequest, interfaceInfo);
         // 校验
         interfaceInfoService.validInterfaceInfo(interfaceInfo, true);
-        User loginUser = userService.getLoginUser(request);
+        User loginUser = UserContextHolder.requireCurrentUser();
         interfaceInfo.setUserId(loginUser.getId());
         boolean result = interfaceInfoService.save(interfaceInfo);
         if(!result){
@@ -89,17 +89,17 @@ public class InterfaceInfoController{
      * 删除
      *
      * @param deleteRequest
-     * @param request
+     *
      * @return
      */
     @Operation(summary = "删除")
     @PostMapping("/delete")
     public BaseResponse<Boolean> deleteInterfaceInfo(
-            @RequestBody DeleteRequest deleteRequest, HttpServletRequest request){
+            @RequestBody DeleteRequest deleteRequest){
         if(deleteRequest == null || deleteRequest.getId() <= 0){
             throw new BusinessException(ErrorCode.PARAMS_ERROR);
         }
-        User user = userService.getLoginUser(request);
+        User user = UserContextHolder.requireCurrentUser();
         long id = deleteRequest.getId();
         // 判断是否存在
         InterfaceInfo oldInterfaceInfo = interfaceInfoService.getById(id);
@@ -107,7 +107,7 @@ public class InterfaceInfoController{
             throw new BusinessException(ErrorCode.NOT_FOUND_ERROR);
         }
         // 仅本人或管理员可删除
-        if(!oldInterfaceInfo.getUserId().equals(user.getId()) && !userService.isAdmin(request)){
+        if(!oldInterfaceInfo.getUserId().equals(user.getId()) && !UserContextHolder.isCurrentUserAdmin()){
             throw new BusinessException(ErrorCode.NO_AUTH_ERROR);
         }
         boolean b = interfaceInfoService.removeById(id);
@@ -118,13 +118,13 @@ public class InterfaceInfoController{
      * 更新
      *
      * @param interfaceInfoUpdateRequest
-     * @param request
+     *
      * @return
      */
     @Operation(summary = "更新")
     @PostMapping("/update")
     public BaseResponse<Boolean> updateInterfaceInfo(
-            @RequestBody InterfaceInfoUpdateRequest interfaceInfoUpdateRequest, HttpServletRequest request){
+            @RequestBody InterfaceInfoUpdateRequest interfaceInfoUpdateRequest){
         if(interfaceInfoUpdateRequest == null || interfaceInfoUpdateRequest.getId() <= 0){
             throw new BusinessException(ErrorCode.PARAMS_ERROR);
         }
@@ -132,7 +132,7 @@ public class InterfaceInfoController{
         BeanUtils.copyProperties(interfaceInfoUpdateRequest, interfaceInfo);
         // 参数校验
         interfaceInfoService.validInterfaceInfo(interfaceInfo, false);
-        User user = userService.getLoginUser(request);
+        User user = UserContextHolder.requireCurrentUser();
         long id = interfaceInfoUpdateRequest.getId();
         // 判断是否存在
         InterfaceInfo oldInterfaceInfo = interfaceInfoService.getById(id);
@@ -140,7 +140,7 @@ public class InterfaceInfoController{
             throw new BusinessException(ErrorCode.NOT_FOUND_ERROR);
         }
         // 仅本人或管理员可修改
-        if(!oldInterfaceInfo.getUserId().equals(user.getId()) && !userService.isAdmin(request)){
+        if(!oldInterfaceInfo.getUserId().equals(user.getId()) && !UserContextHolder.isCurrentUserAdmin()){
             throw new BusinessException(ErrorCode.NO_AUTH_ERROR);
         }
         boolean result = interfaceInfoService.updateById(interfaceInfo);
@@ -222,13 +222,13 @@ public class InterfaceInfoController{
      * 分页获取列表
      *
      * @param interfaceInfoQueryRequest
-     * @param request
+     *
      * @return
      */
     @Operation(summary = "分页获取列表")
     @GetMapping("/list/page")
     public BaseResponse<Page<InterfaceInfo>> listInterfaceInfoByPage(
-            @ParameterObject InterfaceInfoQueryRequest interfaceInfoQueryRequest, HttpServletRequest request){
+            @ParameterObject InterfaceInfoQueryRequest interfaceInfoQueryRequest){
         if(interfaceInfoQueryRequest == null){
             throw new BusinessException(ErrorCode.PARAMS_ERROR);
         }
@@ -258,14 +258,13 @@ public class InterfaceInfoController{
      * 接口发布
      *
      * @param idRequest
-     * @param request
+     *
      * @return
      */
     @Operation(summary = "接口发布")
     @PostMapping("/online")
     @AuthCheck(mustRole = "admin")
-    public BaseResponse<Boolean> onlineInterfaceInfo(@RequestBody IdRequest idRequest,
-                                                     HttpServletRequest request) {
+    public BaseResponse<Boolean> onlineInterfaceInfo(@RequestBody IdRequest idRequest) {
         if (idRequest == null || idRequest.getId() <= 0) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR);
         }
@@ -293,14 +292,13 @@ public class InterfaceInfoController{
      * 下线
      *
      * @param idRequest
-     * @param request
+     *
      * @return
      */
     @Operation(summary = "接口下线")
     @PostMapping("/offline")
     @AuthCheck(mustRole = "admin")
-    public BaseResponse<Boolean> offlineInterfaceInfo(@RequestBody IdRequest idRequest,
-                                                      HttpServletRequest request) {
+    public BaseResponse<Boolean> offlineInterfaceInfo(@RequestBody IdRequest idRequest) {
         if (idRequest == null || idRequest.getId() <= 0) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR);
         }
@@ -322,13 +320,12 @@ public class InterfaceInfoController{
      * 接口调用
      *
      * @param interfaceInfoInvokeRequest
-     * @param request
+     *
      * @return
      */
     @Operation(summary = "接口调用")
     @PostMapping("/invoke")
-    public ResponseEntity<String> invokeInterfaceInfo(@RequestBody InterfaceInfoInvokeRequest interfaceInfoInvokeRequest,
-                                                      HttpServletRequest request) {
+    public ResponseEntity<String> invokeInterfaceInfo(@RequestBody InterfaceInfoInvokeRequest interfaceInfoInvokeRequest) {
         if (interfaceInfoInvokeRequest == null || interfaceInfoInvokeRequest.getId() <= 0) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR);
         }
@@ -343,7 +340,7 @@ public class InterfaceInfoController{
         if (oldInterfaceInfo.getStatus() == InterfaceInfoStatusEnum.OFFLINE.getValue()) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "接口已关闭");
         }
-        User loginUser = userService.getLoginUser(request);
+        User loginUser = UserContextHolder.requireCurrentUser();
         String accessKey = loginUser.getAccessKey();
         String secretKey = loginUser.getSecretKey();
         XiaoxinApiClient tempClient = new XiaoxinApiClient(accessKey, secretKey);

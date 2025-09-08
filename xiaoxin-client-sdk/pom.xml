@@ -15,6 +15,12 @@
     <name>xiaoxin-client-sdk</name>
     <description>小新API客户端SDK - 用于接入小新API的客户端工具包</description>
     <dependencies>
+        <!-- 项目内部依赖 -->
+        <dependency>
+            <groupId>com.xiaoxin</groupId>
+            <artifactId>xiaoxin-api-common</artifactId>
+        </dependency>
+        
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter</artifactId>

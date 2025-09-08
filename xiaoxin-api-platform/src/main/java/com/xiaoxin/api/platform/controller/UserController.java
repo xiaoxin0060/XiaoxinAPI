@@ -8,6 +8,7 @@ import com.xiaoxin.api.platform.common.BaseResponse;
 import com.xiaoxin.api.platform.common.DeleteRequest;
 import com.xiaoxin.api.platform.common.ErrorCode;
 import com.xiaoxin.api.platform.common.ResultUtils;
+import com.xiaoxin.api.platform.context.UserContextHolder;
 import com.xiaoxin.api.platform.exception.BusinessException;
 import com.xiaoxin.api.platform.model.dto.user.*;
 import com.xiaoxin.api.platform.model.entity.User;
@@ -109,8 +110,8 @@ public class UserController {
      */
     @Operation(summary = "获取当前登录用户")
     @GetMapping("/get/login")
-    public BaseResponse<UserVO> getLoginUser(HttpServletRequest request) {
-        User user = userService.getLoginUser(request);
+    public BaseResponse<UserVO> getLoginUser() {
+        User user = UserContextHolder.requireCurrentUser();
         UserVO userVO = new UserVO();
         BeanUtils.copyProperties(user, userVO);
         return ResultUtils.success(userVO);
@@ -129,7 +130,7 @@ public class UserController {
      */
     @Operation(summary = "创建用户")
     @PostMapping("/add")
-    public BaseResponse<Long> addUser(@RequestBody UserAddRequest userAddRequest, HttpServletRequest request) {
+    public BaseResponse<Long> addUser(@RequestBody UserAddRequest userAddRequest) {
         if (userAddRequest == null) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR);
         }
@@ -151,7 +152,7 @@ public class UserController {
      */
     @Operation(summary = "删除用户")
     @PostMapping("/delete")
-    public BaseResponse<Boolean> deleteUser(@RequestBody DeleteRequest deleteRequest, HttpServletRequest request) {
+    public BaseResponse<Boolean> deleteUser(@RequestBody DeleteRequest deleteRequest) {
         if (deleteRequest == null || deleteRequest.getId() <= 0) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR);
         }
@@ -168,7 +169,7 @@ public class UserController {
      */
     @Operation(summary = "更新用户")
     @PostMapping("/update")
-    public BaseResponse<Boolean> updateUser(@RequestBody UserUpdateRequest userUpdateRequest, HttpServletRequest request) {
+    public BaseResponse<Boolean> updateUser(@RequestBody UserUpdateRequest userUpdateRequest) {
         if (userUpdateRequest == null || userUpdateRequest.getId() == null) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR);
         }
@@ -274,11 +275,10 @@ public class UserController {
      */
     @Operation(summary = "获取用户 AK/SK（脱敏）")
     @GetMapping("/aksk/masked")
-    public BaseResponse<Map<String, String>> getMaskedAkSk(@RequestParam(required = false) Long userId,
-                                                           HttpServletRequest request) {
-        User loginUser = userService.getLoginUser(request);
+    public BaseResponse<Map<String, String>> getMaskedAkSk(@RequestParam(required = false) Long userId) {
+        User loginUser = UserContextHolder.requireCurrentUser();
         long targetUserId = (userId == null) ? loginUser.getId() : userId;
-        if (userId != null && !loginUser.getId().equals(userId) && !userService.isAdmin(request)) {
+        if (userId != null && !loginUser.getId().equals(userId) && !UserContextHolder.isCurrentUserAdmin()) {
             throw new BusinessException(ErrorCode.NO_AUTH_ERROR);
         }
         User target = userService.getById(targetUserId);

@@ -8,6 +8,7 @@ import com.xiaoxin.api.platform.common.DeleteRequest;
 import com.xiaoxin.api.platform.common.ErrorCode;
 import com.xiaoxin.api.platform.common.ResultUtils;
 import com.xiaoxin.api.platform.constant.CommonConstant;
+import com.xiaoxin.api.platform.context.UserContextHolder;
 import com.xiaoxin.api.platform.exception.BusinessException;
 import com.xiaoxin.api.platform.model.dto.post.PostAddRequest;
 import com.xiaoxin.api.platform.model.dto.post.PostQueryRequest;
@@ -19,7 +20,6 @@ import com.xiaoxin.api.platform.service.UserService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.annotation.Resource;
-import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.springdoc.core.annotations.ParameterObject;
@@ -55,7 +55,7 @@ public class PostController {
      */
     @Operation(summary = "创建")
     @PostMapping("/add")
-    public BaseResponse<Long> addPost(@RequestBody PostAddRequest postAddRequest, HttpServletRequest request) {
+    public BaseResponse<Long> addPost(@RequestBody PostAddRequest postAddRequest) {
         if (postAddRequest == null) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR);
         }
@@ -63,7 +63,7 @@ public class PostController {
         BeanUtils.copyProperties(postAddRequest, post);
         // 校验
         postService.validPost(post, true);
-        User loginUser = userService.getLoginUser(request);
+        User loginUser = UserContextHolder.requireCurrentUser();
         post.setUserId(loginUser.getId());
         boolean result = postService.save(post);
         if (!result) {
@@ -82,11 +82,11 @@ public class PostController {
      */
     @Operation(summary = "删除")
     @PostMapping("/delete")
-    public BaseResponse<Boolean> deletePost(@RequestBody DeleteRequest deleteRequest, HttpServletRequest request) {
+    public BaseResponse<Boolean> deletePost(@RequestBody DeleteRequest deleteRequest) {
         if (deleteRequest == null || deleteRequest.getId() <= 0) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR);
         }
-        User user = userService.getLoginUser(request);
+        User user = UserContextHolder.requireCurrentUser();
         long id = deleteRequest.getId();
         // 判断是否存在
         Post oldPost = postService.getById(id);
@@ -94,7 +94,7 @@ public class PostController {
             throw new BusinessException(ErrorCode.NOT_FOUND_ERROR);
         }
         // 仅本人或管理员可删除
-        if (!oldPost.getUserId().equals(user.getId()) && !userService.isAdmin(request)) {
+        if (!oldPost.getUserId().equals(user.getId()) && !UserContextHolder.isCurrentUserAdmin()) {
             throw new BusinessException(ErrorCode.NO_AUTH_ERROR);
         }
         boolean b = postService.removeById(id);
@@ -110,8 +110,7 @@ public class PostController {
      */
     @Operation(summary = "更新")
     @PostMapping("/update")
-    public BaseResponse<Boolean> updatePost(@RequestBody PostUpdateRequest postUpdateRequest,
-                                            HttpServletRequest request) {
+    public BaseResponse<Boolean> updatePost(@RequestBody PostUpdateRequest postUpdateRequest) {
         if (postUpdateRequest == null || postUpdateRequest.getId() <= 0) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR);
         }
@@ -119,7 +118,7 @@ public class PostController {
         BeanUtils.copyProperties(postUpdateRequest, post);
         // 参数校验
         postService.validPost(post, false);
-        User user = userService.getLoginUser(request);
+        User user = UserContextHolder.requireCurrentUser();
         long id = postUpdateRequest.getId();
         // 判断是否存在
         Post oldPost = postService.getById(id);
@@ -127,7 +126,7 @@ public class PostController {
             throw new BusinessException(ErrorCode.NOT_FOUND_ERROR);
         }
         // 仅本人或管理员可修改
-        if (!oldPost.getUserId().equals(user.getId()) && !userService.isAdmin(request)) {
+        if (!oldPost.getUserId().equals(user.getId()) && !UserContextHolder.isCurrentUserAdmin()) {
             throw new BusinessException(ErrorCode.NO_AUTH_ERROR);
         }
         boolean result = postService.updateById(post);
@@ -178,7 +177,7 @@ public class PostController {
      */
     @Operation(summary = "分页获取列表")
     @GetMapping("/list/page")
-    public BaseResponse<Page<Post>> listPostByPage(@ParameterObject PostQueryRequest postQueryRequest, HttpServletRequest request) {
+    public BaseResponse<Page<Post>> listPostByPage(@ParameterObject PostQueryRequest postQueryRequest) {
         if (postQueryRequest == null) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR);
         }

@@ -2,13 +2,13 @@ package com.xiaoxin.api.gateway.filter;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.xiaoxin.api.common.utils.ApiSignUtils;
 import com.xiaoxin.api.platform.model.entity.InterfaceInfo;
 import com.xiaoxin.api.platform.model.entity.User;
 import com.xiaoxin.api.platform.service.InnerInterfaceInfoService;
 import com.xiaoxin.api.platform.service.InnerUserInterfaceInfoService;
 import com.xiaoxin.api.platform.service.InnerUserService;
 import com.xiaoxin.api.platform.utils.CryptoUtils;
-import com.xiaoxin.client.sdk.utils.SignUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.dubbo.config.annotation.DubboReference;
 import org.springframework.beans.factory.annotation.Value;
@@ -126,13 +126,9 @@ public class CustomGlobalFilter implements GlobalFilter, Ordered{
         }
         // 实际情况中是从数据库中查出 secretKey
         String secretKey = invokeUser.getSecretKey();
-        // v2 验签：HMAC-SHA256(method + path + contentSha256 + timestamp + nonce)
-        String canonical = (request.getMethod() == null ? "" : request.getMethod().name()) + "\n"
-                + platformPath + "\n"
-                + (contentSha256 == null ? "" : contentSha256) + "\n"
-                + (timestamp == null ? "" : timestamp) + "\n"
-                + (nonce == null ? "" : nonce);
-        String serverSign = SignUtils.hmacSha256Hex(canonical, secretKey);
+        // v2 验签：使用统一的签名算法，确保与客户端完全一致
+        String canonical = ApiSignUtils.buildCanonicalString(method, platformPath, contentSha256, timestamp, nonce);
+        String serverSign = ApiSignUtils.hmacSha256Hex(canonical, secretKey);
         if (sign == null || !sign.equals(serverSign)) {
             return handleNoAuth(response);
         }

@@ -5,12 +5,10 @@ import cn.hutool.http.HttpRequest;
 import cn.hutool.http.HttpResponse;
 import cn.hutool.http.HttpUtil;
 import cn.hutool.json.JSONUtil;
+import com.xiaoxin.api.common.utils.ApiSignUtils;
 
 import java.util.HashMap;
 import java.util.Map;
-
-import static com.xiaoxin.client.sdk.utils.SignUtils.hmacSha256Hex;
-import static com.xiaoxin.client.sdk.utils.SignUtils.sha256Hex;
 
 /**
  * 小新API客户端 - 企业级统一接口调用SDK
@@ -144,23 +142,14 @@ public class XiaoxinApiClient {
         headers.put("nonce", RandomUtil.randomString(16));
         String timestamp = String.valueOf(System.currentTimeMillis() / 1000);
         headers.put("timestamp", timestamp);
-        String contentSha256 = sha256Hex(body);
+        String contentSha256 = ApiSignUtils.sha256Hex(body);
         headers.put("x-content-sha256", contentSha256);
         headers.put("x-sign-version", "v2");
-        String canonical = buildCanonicalString(method, path, contentSha256, timestamp, headers.get("nonce"));
-        headers.put("sign", hmacSha256Hex(canonical, secretKey));
+        String canonical = ApiSignUtils.buildCanonicalString(method, path, contentSha256, timestamp, headers.get("nonce"));
+        headers.put("sign", ApiSignUtils.hmacSha256Hex(canonical, secretKey));
         return headers;
     }
 
-    private String buildCanonicalString(String method, String path, String contentSha256, String timestamp, String nonce) {
-        String m = method == null ? "" : method.toUpperCase();
-        String p = path == null ? "" : path;
-        String cs = contentSha256 == null ? "" : contentSha256;
-        String ts = timestamp == null ? "" : timestamp;
-        String n = nonce == null ? "" : nonce;
-        // v2: method + path + contentSha256 + timestamp + nonce（不含query，简化且两端一致）
-        return m + "\n" + p + "\n" + cs + "\n" + ts + "\n" + n;
-    }
     
     /**
      * 智能参数转换器 - 将任意类型参数转换为Query参数Map

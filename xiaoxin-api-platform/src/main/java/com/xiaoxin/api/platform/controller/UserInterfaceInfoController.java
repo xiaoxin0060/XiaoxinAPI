@@ -8,6 +8,7 @@ import com.xiaoxin.api.platform.common.DeleteRequest;
 import com.xiaoxin.api.platform.common.ErrorCode;
 import com.xiaoxin.api.platform.common.ResultUtils;
 import com.xiaoxin.api.platform.constant.CommonConstant;
+import com.xiaoxin.api.platform.context.UserContextHolder;
 import com.xiaoxin.api.platform.exception.BusinessException;
 import com.xiaoxin.api.platform.model.dto.userInterfaceInfo.UserInterfaceInfoAddQuotaRequest;
 import com.xiaoxin.api.platform.model.dto.userInterfaceInfo.UserInterfaceInfoAddRequest;
@@ -20,7 +21,6 @@ import com.xiaoxin.api.platform.service.UserService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.annotation.Resource;
-import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.springdoc.core.annotations.ParameterObject;
@@ -56,7 +56,7 @@ public class UserInterfaceInfoController{
     @Operation(summary = "创建")
     @PostMapping("/add")
     public BaseResponse<Long> addUserInterfaceInfo(
-            @RequestBody UserInterfaceInfoAddRequest userInterfaceInfoAddRequest, HttpServletRequest request){
+            @RequestBody UserInterfaceInfoAddRequest userInterfaceInfoAddRequest){
         if(userInterfaceInfoAddRequest == null){
             throw new BusinessException(ErrorCode.PARAMS_ERROR);
         }
@@ -64,7 +64,7 @@ public class UserInterfaceInfoController{
         BeanUtils.copyProperties(userInterfaceInfoAddRequest, userInterfaceInfo);
         // 校验
         userInterfaceInfoService.validUserInterfaceInfo(userInterfaceInfo, true);
-        User loginUser = userService.getLoginUser(request);
+        User loginUser = UserContextHolder.requireCurrentUser();
         userInterfaceInfo.setUserId(loginUser.getId());
         boolean result = userInterfaceInfoService.save(userInterfaceInfo);
         if(!result){
@@ -84,11 +84,11 @@ public class UserInterfaceInfoController{
     @Operation(summary = "删除")
     @PostMapping("/delete")
     public BaseResponse<Boolean> deleteUserInterfaceInfo(
-            @RequestBody DeleteRequest deleteRequest, HttpServletRequest request){
+            @RequestBody DeleteRequest deleteRequest){
         if(deleteRequest == null || deleteRequest.getId() <= 0){
             throw new BusinessException(ErrorCode.PARAMS_ERROR);
         }
-        User user = userService.getLoginUser(request);
+        User user = UserContextHolder.requireCurrentUser();
         long id = deleteRequest.getId();
         // 判断是否存在
         UserInterfaceInfo oldUserInterfaceInfo = userInterfaceInfoService.getById(id);
@@ -96,7 +96,7 @@ public class UserInterfaceInfoController{
             throw new BusinessException(ErrorCode.NOT_FOUND_ERROR);
         }
         // 仅本人或管理员可删除
-        if(!oldUserInterfaceInfo.getUserId().equals(user.getId()) && !userService.isAdmin(request)){
+        if(!oldUserInterfaceInfo.getUserId().equals(user.getId()) && !UserContextHolder.isCurrentUserAdmin()){
             throw new BusinessException(ErrorCode.NO_AUTH_ERROR);
         }
         boolean b = userInterfaceInfoService.removeById(id);
@@ -113,7 +113,7 @@ public class UserInterfaceInfoController{
     @Operation(summary = "更新")
     @PostMapping("/update")
     public BaseResponse<Boolean> updateUserInterfaceInfo(
-            @RequestBody UserInterfaceInfoUpdateRequest userInterfaceInfoUpdateRequest, HttpServletRequest request){
+            @RequestBody UserInterfaceInfoUpdateRequest userInterfaceInfoUpdateRequest){
         if(userInterfaceInfoUpdateRequest == null || userInterfaceInfoUpdateRequest.getId() <= 0){
             throw new BusinessException(ErrorCode.PARAMS_ERROR);
         }
@@ -121,7 +121,7 @@ public class UserInterfaceInfoController{
         BeanUtils.copyProperties(userInterfaceInfoUpdateRequest, userInterfaceInfo);
         // 参数校验
         userInterfaceInfoService.validUserInterfaceInfo(userInterfaceInfo, false);
-        User user = userService.getLoginUser(request);
+        User user = UserContextHolder.requireCurrentUser();
         long id = userInterfaceInfoUpdateRequest.getId();
         // 判断是否存在
         UserInterfaceInfo oldUserInterfaceInfo = userInterfaceInfoService.getById(id);
@@ -129,7 +129,7 @@ public class UserInterfaceInfoController{
             throw new BusinessException(ErrorCode.NOT_FOUND_ERROR);
         }
         // 仅本人或管理员可修改
-        if(!oldUserInterfaceInfo.getUserId().equals(user.getId()) && !userService.isAdmin(request)){
+        if(!oldUserInterfaceInfo.getUserId().equals(user.getId()) && !UserContextHolder.isCurrentUserAdmin()){
             throw new BusinessException(ErrorCode.NO_AUTH_ERROR);
         }
         boolean result = userInterfaceInfoService.updateById(userInterfaceInfo);
@@ -182,7 +182,7 @@ public class UserInterfaceInfoController{
     @Operation(summary = "分页获取列表")
     @GetMapping("/list/page")
     public BaseResponse<Page<UserInterfaceInfo>> listUserInterfaceInfoByPage(
-            @ParameterObject UserInterfaceInfoQueryRequest userInterfaceInfoQueryRequest, HttpServletRequest request){
+            @ParameterObject UserInterfaceInfoQueryRequest userInterfaceInfoQueryRequest){
         if(userInterfaceInfoQueryRequest == null){
             throw new BusinessException(ErrorCode.PARAMS_ERROR);
         }
@@ -212,15 +212,14 @@ public class UserInterfaceInfoController{
      */
     @Operation(summary = "增加接口调用额度")
     @PostMapping("/addQuota")
-    public BaseResponse<Boolean> addQuota(@RequestBody UserInterfaceInfoAddQuotaRequest req,
-                                          HttpServletRequest request) {
+    public BaseResponse<Boolean> addQuota(@RequestBody UserInterfaceInfoAddQuotaRequest req) {
         if (req == null || req.getUserId() == null || req.getInterfaceInfoId() == null || req.getAddCount() == null
                 || req.getUserId() <= 0 || req.getInterfaceInfoId() <= 0 || req.getAddCount() <= 0) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR);
         }
-        User loginUser = userService.getLoginUser(request);
+        User loginUser = UserContextHolder.requireCurrentUser();
         // 仅本人或管理员可操作
-        if (!loginUser.getId().equals(req.getUserId()) && !userService.isAdmin(request)) {
+        if (!loginUser.getId().equals(req.getUserId()) && !UserContextHolder.isCurrentUserAdmin()) {
             throw new BusinessException(ErrorCode.NO_AUTH_ERROR);
         }
         boolean ok = userInterfaceInfoService.addQuota(req.getInterfaceInfoId(), req.getUserId(), req.getAddCount());

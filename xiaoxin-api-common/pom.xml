@@ -28,6 +28,19 @@
             <artifactId>lombok</artifactId>
             <optional>true</optional>
         </dependency>
+        
+        <!-- Hutool 工具包 - 用于签名算法 -->
+        <dependency>
+            <groupId>cn.hutool</groupId>
+            <artifactId>hutool-all</artifactId>
+        </dependency>
+        
+        <!-- Spring Boot Test -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
 </project>
