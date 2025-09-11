@@ -227,9 +227,12 @@ public class ProxyFilter extends BaseGatewayFilter {
                     log.warn("服务已熔断，执行降级策略 - 服务: {}, 接口: {}", 
                             serviceKey, interfaceInfo.getName());
                     return Mono.just(buildCircuitBreakerFallbackResponse(interfaceInfo));
+                } else if (circuitState == RedisCircuitBreaker.CircuitState.HALF_OPEN) {
+                    // 半开状态，需要通过分布式锁控制只允许一个探测请求
+                    return executeProbeWithLock(serviceKey, exchange, interfaceInfo, request);
                 }
                 
-                // 【步骤2-4】正常执行代理调用
+                // 【步骤2-4】正常执行代理调用（CLOSED状态）
                 return executeProxyCall(exchange, interfaceInfo, request)
                     .flatMap(responseBody -> {
                         // 【步骤5】调用成功，记录成功状态
@@ -348,6 +351,117 @@ public class ProxyFilter extends BaseGatewayFilter {
         }
     }
     
+    /**
+     * 半开状态下的探测调用（带分布式锁控制）
+     * 
+     * 核心逻辑：
+     * 1. 尝试获取探测令牌（Redis分布式锁）
+     * 2. 获取成功：执行探测调用，根据结果更新断路器状态
+     * 3. 获取失败：说明已有探测进行中，选择等待重试或直接降级
+     * 
+     * 技术要点：
+     * - 使用Redis setIfAbsent实现分布式锁
+     * - 锁超时时间设置合理，防止死锁
+     * - 探测成功/失败都要正确更新断路器状态
+     * - 异常安全：锁操作失败不影响降级逻辑
+     * 
+     * @param serviceKey 服务标识
+     * @param exchange ServerWebExchange对象
+     * @param interfaceInfo 接口信息
+     * @param request 原始请求
+     * @return 探测结果或降级响应
+     */
+    private Mono<String> executeProbeWithLock(String serviceKey, ServerWebExchange exchange, 
+                                            InterfaceInfo interfaceInfo, ServerHttpRequest request) {
+        // 构建探测令牌key
+        String probeTokenKey = "xiaoxin:circuit:probe_token:" + serviceKey;
+        
+        // 尝试获取探测令牌（30秒超时，防止死锁）
+        return circuitBreaker.getRedisTemplate().opsForValue()
+            .setIfAbsent(probeTokenKey, "1", Duration.ofSeconds(30))
+            .flatMap(acquired -> {
+                if (acquired) {
+                    // 获得探测令牌，执行探测调用
+                    log.info("获得探测令牌，执行探测调用 - 服务: {}", serviceKey);
+                    
+                    return executeProxyCall(exchange, interfaceInfo, request)
+                        .flatMap(responseBody -> {
+                            // 探测成功，恢复为CLOSED状态
+                            return circuitBreaker.recordSuccess(serviceKey)
+                                .then(releaseProbeToken(probeTokenKey))
+                                .then(Mono.just(responseBody))
+                                .doOnSuccess(unused -> 
+                                    log.info("探测成功，断路器恢复正常 - 服务: {}", serviceKey));
+                        })
+                        .onErrorResume(error -> {
+                            // 探测失败，重新回到OPEN状态
+                            return circuitBreaker.recordFailure(serviceKey)
+                                .then(circuitBreaker.triggerCircuitBreak(serviceKey))
+                                .then(releaseProbeToken(probeTokenKey))
+                                .then(Mono.<String>error(error))
+                                .doOnError(unused -> 
+                                    log.warn("探测失败，重新进入熔断状态 - 服务: {}", serviceKey));
+                        });
+                } else {
+                    // 已有探测请求进行中，选择策略
+                    log.debug("已有探测请求进行中 - 服务: {}", serviceKey);
+                    
+                    // 策略选择：可以等待重试或直接降级
+                    // 这里选择短暂等待后重试，最多等待1次
+                    return Mono.delay(Duration.ofMillis(100))
+                        .then(circuitBreaker.getCurrentState(serviceKey))
+                        .flatMap(newState -> {
+                            if (newState == RedisCircuitBreaker.CircuitState.CLOSED) {
+                                // 探测成功了，正常调用
+                                log.debug("探测成功，转为正常调用 - 服务: {}", serviceKey);
+                                return executeProxyCall(exchange, interfaceInfo, request)
+                                    .flatMap(responseBody -> {
+                                        return circuitBreaker.recordSuccess(serviceKey)
+                                            .then(Mono.just(responseBody));
+                                    })
+                                    .onErrorResume(error -> {
+                                        return circuitBreaker.recordFailure(serviceKey)
+                                            .then(circuitBreaker.shouldTriggerCircuitBreak(serviceKey))
+                                            .flatMap(shouldBreak -> {
+                                                if (shouldBreak) {
+                                                    return circuitBreaker.triggerCircuitBreak(serviceKey)
+                                                        .then(Mono.<String>error(error));
+                                                } else {
+                                                    return Mono.<String>error(error);
+                                                }
+                                            });
+                                    });
+                            } else {
+                                // 仍在熔断或探测中，直接降级
+                                log.debug("等待后仍需降级 - 服务: {}, 状态: {}", serviceKey, newState);
+                                return Mono.just(buildCircuitBreakerFallbackResponse(interfaceInfo));
+                            }
+                        });
+                }
+            })
+            .onErrorResume(lockError -> {
+                // 分布式锁操作异常，降级处理
+                log.warn("获取探测令牌异常，执行降级 - 服务: {}", serviceKey, lockError);
+                return Mono.just(buildCircuitBreakerFallbackResponse(interfaceInfo));
+            });
+    }
+    
+    /**
+     * 释放探测令牌
+     * 
+     * @param probeTokenKey 探测令牌key
+     * @return 操作完成的Mono
+     */
+    private Mono<Void> releaseProbeToken(String probeTokenKey) {
+        return circuitBreaker.getRedisTemplate().delete(probeTokenKey)
+            .then()
+            .doOnSuccess(unused -> log.debug("探测令牌已释放: {}", probeTokenKey))
+            .onErrorResume(error -> {
+                log.warn("释放探测令牌异常: {}", probeTokenKey, error);
+                return Mono.empty(); // 释放失败不影响主流程，依靠超时自动释放
+            });
+    }
+
     /**
      * 构建断路器降级响应
      * 

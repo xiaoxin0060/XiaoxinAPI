@@ -1,5 +1,6 @@
 package com.xiaoxin.api.gateway.circuit;
 
+import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Range;
@@ -45,7 +46,17 @@ public class RedisCircuitBreaker {
         OPEN,      // 开启状态：熔断保护，拒绝所有请求
         HALF_OPEN  // 半开状态：探测恢复，允许少量请求试探
     }
-    
+
+    /**
+     * -- GETTER --
+     *  获取Redis模板（供其他组件使用分布式锁等功能）
+     *  使用场景：
+     *  - ProxyFilter中需要实现探测锁
+     *  - 其他需要Redis操作的地方
+     *
+     * @return ReactiveStringRedisTemplate实例
+     */
+    @Getter
     @Autowired
     private ReactiveStringRedisTemplate redisTemplate;
     
@@ -253,8 +264,8 @@ public class RedisCircuitBreaker {
                                 long timeoutMs = Duration.ofMinutes(properties.getOpenTimeoutMinutes()).toMillis();
                                 
                                 if (now - openTime >= timeoutMs) {
-                                    // 到了探测时间，转为半开状态
-                                    log.info("进入探测状态 - 服务: {}", serviceKey);
+                                    // 到了探测时间，返回HALF_OPEN状态（不在这里更新Redis状态）
+                                    log.debug("到达探测时间，返回半开状态 - 服务: {}", serviceKey);
                                     return CircuitState.HALF_OPEN;
                                 } else {
                                     // 仍在熔断期
@@ -264,7 +275,8 @@ public class RedisCircuitBreaker {
                                 log.warn("熔断时间格式错误 - 服务: {}, 值: {}", serviceKey, openTimeStr);
                                 return CircuitState.CLOSED;
                             }
-                        });
+                        })
+                        .switchIfEmpty(Mono.just(CircuitState.CLOSED));
                 } else if (CircuitState.HALF_OPEN.name().equals(stateValue)) {
                     return Mono.just(CircuitState.HALF_OPEN);
                 } else {
@@ -299,4 +311,5 @@ public class RedisCircuitBreaker {
             .then()
             .doOnSuccess(unused -> log.debug("断路器状态已清除 - 服务: {}", serviceKey));
     }
+
 }

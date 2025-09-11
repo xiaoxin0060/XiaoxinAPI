@@ -88,6 +88,15 @@ xiaoxin:
       enable-metrics: true       # 启用指标收集
       enable-request-logging: true  # 启用请求日志
 
+    # 断路器配置（防雪崩机制）
+    circuit-breaker:
+      enabled: true              # 断路器功能总开关
+      failure-threshold: 5       # 失败阈值（次）- 5次失败后熔断
+      window-minutes: 5          # 统计窗口（分钟）- 统计最近5分钟的失败
+      open-timeout-minutes: 1    # 熔断持续时间（分钟）- 1分钟后允许探测
+      redis-key-prefix: "xiaoxin:circuit"    # Redis key前缀
+      redis-key-expire-minutes: 15           # Redis key过期时间（分钟）
+
 # Dubbo配置
 dubbo:
   registry:
