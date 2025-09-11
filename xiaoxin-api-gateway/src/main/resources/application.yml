@@ -1,33 +1,119 @@
-server:
-  port: 9999
+# 小新API网关配置文件
+# 支持过滤器架构切换和详细的功能配置
+
 spring:
+  application:
+    name: xiaoxin-api-gateway
   cloud:
     gateway:
+      # 全局CORS配置
       server:
         webflux:
+          globalcors:
+            cors-configurations:
+              '[/**]':
+                          allowedOrigins: "*"
+                          allowedMethods: "*"
+                          allowedHeaders: "*"
+                          maxAge: 3600
           default-filters:
             - AddResponseHeader=source, xiaoxin
           routes:
             # 捕获所有/api/**请求，URI为占位符，实际转发在GlobalFilter中处理
-            - id: dynamic_proxy_route
-              uri: http://httpbin.org  # 占位符，实际不会使用
-              predicates:
-                - Path=/api/**
+                    - id: dynamic_proxy_route
+                      uri: no://op
+                      predicates:
+                        - Path=/api/**
+  # Redis配置、网关使用独立的数据库
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      database: 2
+      timeout: 5000
+      lettuce:
+        pool:
+          max-active: 8
+          max-wait: -1
+          max-idle: 8
+          min-idle: 0
+
+server:
+  port: 9999
+
+# 小新网关自定义配置
+xiaoxin:
+  gateway:
+    # 🚀 架构切换开关 - 控制使用新架构还是旧架构
+    new-architecture:
+      enabled: true  # true=新架构(推荐), false=旧架构(兼容)
+    
+    # 过滤器开关配置（细粒度控制）
+    filters:
+      logging: true              # 日志记录过滤器
+      security: true             # 安全过滤器（IP白名单）
+      authentication: true       # 认证过滤器（签名验证）
+      interface-validation: true # 接口验证过滤器
+      rate-limit: true           # 限流过滤器
+      quota: true                # 配额过滤器
+      proxy: true                # 代理过滤器
+      response: true             # 响应处理过滤器
+
+    # 安全相关配置
+    security:
+      # IP白名单（支持单IP和CIDR网段）
+      ip-whitelist:
+        - "127.0.0.1"            # 本地回环
+        - "0:0:0:0:0:0:0:1"      # IPv6本地回环
+        - "::1"                  # IPv6简化回环
+      
+      # 签名验证配置
+      signature-timeout-seconds: 300  # 签名有效期（秒）
+      nonce-length: 16               # nonce长度（字符）
+      enable-timestamp-validation: true    # 启用时间戳验证
+      enable-replay-protection: true       # 启用防重放攻击
+
+    # 限流配置
+    rate-limit:
+      enabled: true              # 限流功能总开关
+      window-seconds: 60         # 滑动窗口大小（秒）
+      default-limit: 1000        # 默认限流值（次/窗口）
+      redis-key-prefix: "xiaoxin:rate_limit"  # Redis key前缀
+      key-expire-seconds: 75     # Redis key过期时间（秒）
+
+    # 代理配置
+    proxy:
+      default-timeout-ms: 30000  # 默认超时时间（毫秒）
+      default-retry-count: 3     # 默认重试次数
+      enable-metrics: true       # 启用指标收集
+      enable-request-logging: true  # 启用请求日志
+
+# Dubbo配置
 dubbo:
   registry:
     address: nacos://127.0.0.1:8848?username=nacos&password=nacos
     register-mode: instance
   protocol:
     name: tri
-    port: 50051
+    port: 50052
   application:
     qos-enable: false
-    name: consumer
-    qos-port: 22223
+    name: gateway
+    qos-port: 22224
     qos-accept-foreign-ip: false
     logger: slf4j
 
+# 安全配置
 security:
   authcfg:
-    # 建议通过环境变量 AUTHCFG_MASTER_KEY 注入，默认仅用于本地开发
+    # 建议通过环境变量注入：export AUTHCFG_MASTER_KEY=your_32_byte_key
     master-key: ${AUTHCFG_MASTER_KEY:0123456789ABCDEF0123456789ABCDEF}
+
+# 日志配置
+logging:
+  level:
+    com.xiaoxin.api.gateway: DEBUG
+    org.springframework.cloud.gateway: INFO
+    reactor.netty: INFO
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{50} - %msg%n"
