@@ -1,6 +1,7 @@
 package com.xiaoxin.api.gateway.filter;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.xiaoxin.api.gateway.circuit.RedisCircuitBreaker;
 import com.xiaoxin.api.gateway.filter.base.BaseGatewayFilter;
 import com.xiaoxin.api.platform.model.entity.InterfaceInfo;
 import com.xiaoxin.api.platform.model.entity.User;
@@ -97,6 +98,18 @@ public class ProxyFilter extends BaseGatewayFilter {
     private WebClient webClient;
 
     /**
+     * Redis断路器
+     * 
+     * 防雪崩机制：
+     * - 分布式断路器状态管理
+     * - 基于失败率的自动熔断
+     * - 自动恢复和探测机制
+     * - 保护下游服务稳定性
+     */
+    @Autowired
+    private RedisCircuitBreaker circuitBreaker;
+
+    /**
      * 认证配置主密钥
      * 
      * 用于解密接口认证配置：
@@ -168,13 +181,21 @@ public class ProxyFilter extends BaseGatewayFilter {
     }
 
     /**
-     * 执行动态代理调用
+     * 执行动态代理调用（集成断路器防雪崩机制）
      * 
      * 代理流程：
-     * 1. 构建真实接口URL（包含Query参数）
-     * 2. 构建请求头（复制原始头+添加认证头）
-     * 3. 使用WebClient发起HTTP调用
-     * 4. 处理响应和异常
+     * 1. 【新增】检查断路器状态，熔断时直接降级
+     * 2. 构建真实接口URL（包含Query参数）
+     * 3. 构建请求头（复制原始头+添加认证头）
+     * 4. 使用WebClient发起HTTP调用
+     * 5. 【新增】根据调用结果更新断路器状态
+     * 6. 处理响应和异常
+     * 
+     * 断路器集成：
+     * - 服务维度隔离：每个接口Host独立熔断
+     * - 失败率统计：基于Redis分布式统计
+     * - 自动恢复：探测机制自动恢复服务
+     * - 降级响应：熔断时返回友好提示
      * 
      * URL构建：
      * - 基础URL：interfaceInfo.providerUrl
@@ -195,6 +216,69 @@ public class ProxyFilter extends BaseGatewayFilter {
      */
     private Mono<String> performDynamicProxy(ServerWebExchange exchange, InterfaceInfo interfaceInfo, 
                                            User user, ServerHttpRequest request) {
+        // 构建服务唯一标识（按Host分组，同一服务的不同接口共享断路器状态）
+        String serviceKey = buildServiceKey(interfaceInfo);
+        
+        // 【步骤1】检查断路器状态
+        return circuitBreaker.getCurrentState(serviceKey)
+            .flatMap(circuitState -> {
+                if (circuitState == RedisCircuitBreaker.CircuitState.OPEN) {
+                    // 熔断状态，直接返回降级响应
+                    log.warn("服务已熔断，执行降级策略 - 服务: {}, 接口: {}", 
+                            serviceKey, interfaceInfo.getName());
+                    return Mono.just(buildCircuitBreakerFallbackResponse(interfaceInfo));
+                }
+                
+                // 【步骤2-4】正常执行代理调用
+                return executeProxyCall(exchange, interfaceInfo, request)
+                    .flatMap(responseBody -> {
+                        // 【步骤5】调用成功，记录成功状态
+                        return circuitBreaker.recordSuccess(serviceKey)
+                            .then(Mono.just(responseBody))
+                            .doOnSuccess(unused -> 
+                                log.debug("代理调用成功，已记录成功状态 - 服务: {}", serviceKey));
+                    })
+                    .onErrorResume(error -> {
+                        // 【步骤5】调用失败，记录失败并检查是否需要熔断
+                        return circuitBreaker.recordFailure(serviceKey)
+                            .then(circuitBreaker.shouldTriggerCircuitBreak(serviceKey))
+                            .flatMap(shouldBreak -> {
+                                if (shouldBreak) {
+                                    // 触发熔断
+                                    return circuitBreaker.triggerCircuitBreak(serviceKey)
+                                        .then(Mono.<String>error(error))
+                                        .doOnError(unused -> 
+                                            log.warn("代理调用失败并触发熔断 - 服务: {}, 错误: {}", 
+                                                    serviceKey, error.getMessage()));
+                                } else {
+                                    // 不熔断，继续抛出原异常
+                                    return Mono.<String>error(error);
+                                }
+                            })
+                            .onErrorResume(breakerError -> {
+                                // 断路器操作异常时，返回原始异常（保证主流程不被断路器异常影响）
+                                log.warn("断路器操作异常，继续处理原始异常 - 服务: {}", serviceKey, breakerError);
+                                return Mono.<String>error(error);
+                            });
+                    });
+            })
+            .onErrorResume(error -> {
+                // 断路器状态检查异常时，降级为直接调用（保证可用性）
+                log.warn("断路器状态检查异常，降级为直接调用 - 服务: {}", serviceKey, error);
+                return executeProxyCall(exchange, interfaceInfo, request);
+            });
+    }
+    
+    /**
+     * 执行实际的代理调用（纯WebClient调用，不包含断路器逻辑）
+     * 
+     * @param exchange ServerWebExchange对象
+     * @param interfaceInfo 接口信息
+     * @param request 原始请求
+     * @return 响应内容Mono
+     */
+    private Mono<String> executeProxyCall(ServerWebExchange exchange, InterfaceInfo interfaceInfo, 
+                                        ServerHttpRequest request) {
         try {
             // 构建真实接口URL
             String realUrl = buildRealUrl(interfaceInfo, request);
@@ -227,6 +311,73 @@ public class ProxyFilter extends BaseGatewayFilter {
         } catch (Exception e) {
             log.error("构建代理请求失败 - 接口: {}", interfaceInfo.getName(), e);
             return Mono.error(new ProxyException("构建代理请求失败: " + e.getMessage(), e));
+        }
+    }
+    
+    /**
+     * 构建服务唯一标识
+     * 
+     * 服务分组策略：
+     * - 按Host分组：相同Host的接口共享断路器状态
+     * - 例如：api.weather.com 下的所有接口共享一个断路器
+     * - 优点：故障隔离粒度合适，配置简单
+     * 
+     * 其他可选策略：
+     * - 按接口分组：每个接口独立断路器（更精细但配置复杂）
+     * - 按服务商分组：第三方服务商维度（适合多服务商场景）
+     * 
+     * @param interfaceInfo 接口信息
+     * @return 服务唯一标识
+     */
+    private String buildServiceKey(InterfaceInfo interfaceInfo) {
+        try {
+            // 从providerUrl中提取Host作为服务标识
+            String providerUrl = interfaceInfo.getProviderUrl();
+            if (providerUrl != null && providerUrl.startsWith("http")) {
+                // 解析URL获取Host
+                java.net.URL url = new java.net.URL(providerUrl);
+                return url.getHost();
+            } else {
+                // 降级方案：使用接口名称
+                return "interface:" + interfaceInfo.getName();
+            }
+        } catch (Exception e) {
+            // 异常时使用接口ID作为标识
+            log.warn("解析服务标识异常 - 接口: {}, 使用接口ID作为标识", interfaceInfo.getName(), e);
+            return "interface:" + interfaceInfo.getId();
+        }
+    }
+    
+    /**
+     * 构建断路器降级响应
+     * 
+     * 降级策略：
+     * - 返回统一格式的友好提示
+     * - 包含服务暂时不可用的信息
+     * - 建议用户稍后重试
+     * - 保持与正常响应相同的JSON格式
+     * 
+     * @param interfaceInfo 接口信息
+     * @return 降级响应内容
+     */
+    private String buildCircuitBreakerFallbackResponse(InterfaceInfo interfaceInfo) {
+        try {
+            // 构建友好的降级响应
+            return objectMapper.writeValueAsString(java.util.Map.of(
+                "code", 503,
+                "message", "服务暂时不可用，请稍后重试",
+                "data", java.util.Map.of(
+                    "service", interfaceInfo.getName(),
+                    "reason", "服务熔断保护",
+                    "suggestion", "系统检测到该服务异常，已启动保护机制，请稍后重试"
+                ),
+                "timestamp", System.currentTimeMillis()
+            ));
+        } catch (Exception e) {
+            // JSON序列化失败时的最简降级
+            log.error("构建降级响应失败", e);
+            return "{\"code\":503,\"message\":\"服务暂时不可用，请稍后重试\",\"timestamp\":" + 
+                   System.currentTimeMillis() + "}";
         }
     }
 
