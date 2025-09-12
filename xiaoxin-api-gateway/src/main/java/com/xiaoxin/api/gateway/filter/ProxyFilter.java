@@ -14,7 +14,6 @@ import org.springframework.cloud.gateway.filter.GatewayFilterChain;
 import org.springframework.core.io.buffer.DataBuffer;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.server.reactive.ServerHttpRequest;
-import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Mono;
@@ -71,7 +70,6 @@ import java.util.Base64;
  * @author xiaoxin
  * @since 1.0.0
  */
-@Component
 public class ProxyFilter extends BaseGatewayFilter {
 
     /**

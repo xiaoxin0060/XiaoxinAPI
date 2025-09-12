@@ -5,7 +5,6 @@ import com.xiaoxin.api.platform.model.entity.InterfaceInfo;
 import com.xiaoxin.api.platform.service.InnerInterfaceInfoService;
 import org.apache.dubbo.config.annotation.DubboReference;
 import org.springframework.cloud.gateway.filter.GatewayFilterChain;
-import org.springframework.stereotype.Component;
 import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Mono;
 
@@ -52,7 +51,6 @@ import reactor.core.publisher.Mono;
  * @author xiaoxin
  * @since 1.0.0
  */
-@Component
 public class InterfaceFilter extends BaseGatewayFilter {
 
     /**

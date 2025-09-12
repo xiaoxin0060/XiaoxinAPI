@@ -3,7 +3,6 @@ package com.xiaoxin.api.gateway.filter;
 import com.xiaoxin.api.gateway.filter.base.BaseGatewayFilter;
 import org.springframework.cloud.gateway.filter.GatewayFilterChain;
 import org.springframework.http.server.reactive.ServerHttpRequest;
-import org.springframework.stereotype.Component;
 import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Mono;
 
@@ -42,7 +41,6 @@ import reactor.core.publisher.Mono;
  * @author xiaoxin
  * @since 1.0.0
  */
-@Component
 public class LoggingFilter extends BaseGatewayFilter {
 
     @Override

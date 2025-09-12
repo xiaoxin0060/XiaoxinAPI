@@ -86,6 +86,7 @@ public class FilterConfiguration {
      * @return LoggingFilter实例
      */
     @Bean
+    @ConditionalOnProperty(prefix = "xiaoxin.gateway.filters", name = "logging", havingValue = "true", matchIfMissing = true)
     public LoggingFilter loggingFilter() {
         log.info("✅ 注册过滤器：LoggingFilter (Order: -100) - 请求日志记录和数据提取");
         return new LoggingFilter();
@@ -100,6 +101,7 @@ public class FilterConfiguration {
      * @return SecurityFilter实例
      */
     @Bean
+    @ConditionalOnProperty(prefix = "xiaoxin.gateway.filters", name = "security", havingValue = "true", matchIfMissing = true)
     public SecurityFilter securityFilter() {
         log.info("✅ 注册过滤器：SecurityFilter (Order: -90) - IP白名单验证");
         return new SecurityFilter();
@@ -114,6 +116,7 @@ public class FilterConfiguration {
      * @return AuthenticationFilter实例
      */
     @Bean
+    @ConditionalOnProperty(prefix = "xiaoxin.gateway.filters", name = "authentication", havingValue = "true", matchIfMissing = true)
     public AuthenticationFilter authenticationFilter() {
         log.info("✅ 注册过滤器：AuthenticationFilter (Order: -80) - 用户认证和签名验证");
         return new AuthenticationFilter();
@@ -128,6 +131,7 @@ public class FilterConfiguration {
      * @return InterfaceFilter实例
      */
     @Bean
+    @ConditionalOnProperty(prefix = "xiaoxin.gateway.filters", name = "interface-validation", havingValue = "true", matchIfMissing = true)
     public InterfaceFilter interfaceFilter() {
         log.info("✅ 注册过滤器：InterfaceFilter (Order: -70) - 接口验证和路由解析");
         return new InterfaceFilter();
@@ -142,6 +146,8 @@ public class FilterConfiguration {
      * @return RateLimitFilter实例
      */
     @Bean
+    @ConditionalOnProperty(prefix = "xiaoxin.gateway.filters", name = "rate-limit", havingValue = "true", matchIfMissing = true)
+    @ConditionalOnProperty(prefix = "xiaoxin.gateway.rate-limit", name = "enabled", havingValue = "true", matchIfMissing = true)
     public RateLimitFilter rateLimitFilter() {
         log.info("✅ 注册过滤器：RateLimitFilter (Order: -60) - 分布式限流控制");
         return new RateLimitFilter();
@@ -156,6 +162,7 @@ public class FilterConfiguration {
      * @return QuotaFilter实例
      */
     @Bean
+    @ConditionalOnProperty(prefix = "xiaoxin.gateway.filters", name = "quota", havingValue = "true", matchIfMissing = true)
     public QuotaFilter quotaFilter() {
         log.info("✅ 注册过滤器：QuotaFilter (Order: -50) - 配额管理和预扣减");
         return new QuotaFilter();
@@ -170,6 +177,7 @@ public class FilterConfiguration {
      * @return ProxyFilter实例
      */
     @Bean
+    @ConditionalOnProperty(prefix = "xiaoxin.gateway.filters", name = "proxy", havingValue = "true", matchIfMissing = true)
     public ProxyFilter proxyFilter() {
         log.info("✅ 注册过滤器：ProxyFilter (Order: -40) - 动态代理和接口转发");
         return new ProxyFilter();
@@ -184,6 +192,7 @@ public class FilterConfiguration {
      * @return ResponseFilter实例
      */
     @Bean
+    @ConditionalOnProperty(prefix = "xiaoxin.gateway.filters", name = "response", havingValue = "true", matchIfMissing = true)
     public ResponseFilter responseFilter() {
         log.info("✅ 注册过滤器：ResponseFilter (Order: -30) - 响应处理和性能统计");
         return new ResponseFilter();

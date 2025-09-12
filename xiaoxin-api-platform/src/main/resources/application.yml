@@ -16,14 +16,14 @@ spring:
   # 数据库配置
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
-    url: jdbc:mysql://localhost:3306/xiaoxinapi?useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Shanghai&useSSL=false
+    url: jdbc:mysql://localhost:5291/xiaoxinapi?useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Shanghai&useSSL=false
     username: root
     password: root
   # Redis 配置
   data:
     redis:
       host: localhost
-      port: 6379
+      port: 9736
       database: 1
       timeout: 5000
   # Elasticsearch 配置

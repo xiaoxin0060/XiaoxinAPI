@@ -7,7 +7,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.cloud.gateway.filter.GatewayFilterChain;
 import org.springframework.data.domain.Range;
 import org.springframework.data.redis.core.ReactiveStringRedisTemplate;
-import org.springframework.stereotype.Component;
 import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Mono;
 
@@ -60,7 +59,6 @@ import java.util.UUID;
  * @author xiaoxin
  * @since 1.0.0
  */
-@Component
 public class RateLimitFilter extends BaseGatewayFilter {
 
     /**
