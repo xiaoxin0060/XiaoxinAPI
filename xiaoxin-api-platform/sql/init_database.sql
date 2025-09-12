@@ -82,7 +82,6 @@ CREATE TABLE IF NOT EXISTS `user_interface_info` (
     `interfaceInfoId` bigint NOT NULL COMMENT '接口ID',
     `totalNum` int NOT NULL DEFAULT '0' COMMENT '总调用次数',
     `leftNum` int NOT NULL DEFAULT '0' COMMENT '剩余调用次数',
-    `status` int NOT NULL DEFAULT '0' COMMENT '状态（0-禁用 1-启用）',
     `createTime` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     `updateTime` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
     `isDelete` tinyint NOT NULL DEFAULT '0' COMMENT '是否删除(0-未删除 1-已删除)',
@@ -108,47 +107,14 @@ CREATE TABLE IF NOT EXISTS `post` (
     KEY `idx_userId` (`userId`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='帖子表';
 
--- 网关路由配置表（可选，用于动态路由）
-CREATE TABLE IF NOT EXISTS `gateway_route` (
-    `id` bigint NOT NULL AUTO_INCREMENT COMMENT '主键ID',
-    `routeId` varchar(128) NOT NULL COMMENT '路由ID',
-    `uri` varchar(512) NOT NULL COMMENT '目标URI',
-    `predicates` text NOT NULL COMMENT '断言配置JSON',
-    `filters` text DEFAULT NULL COMMENT '过滤器配置JSON',
-    `metadata` text DEFAULT NULL COMMENT '元数据JSON',
-    `order` int DEFAULT 0 COMMENT '路由优先级',
-    `status` int NOT NULL DEFAULT '1' COMMENT '状态（0-禁用 1-启用）',
-    `createTime` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
-    `updateTime` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
-    PRIMARY KEY (`id`),
-    UNIQUE KEY `uni_routeId` (`routeId`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='网关路由配置表';
+
 
 -- ==========================================================
 -- 测试数据插入
 -- ==========================================================
 
 -- 插入测试用户
-INSERT IGNORE INTO `user` (
-    `id`, `userName`, `userAccount`, `userAvatar`, `gender`, `userRole`, `userPassword`, 
-    `accessKey`, `secretKey`, `createTime`, `updateTime`, `isDelete`
-) VALUES (
-    1, 'API测试用户', 'testuser', 'https://example.com/avatar.jpg', 0, 'user',
-    -- 密码为: testpassword (实际项目中应使用BCrypt)
-    'b109f3bbbc244eb82441917ed06d618b9008dd09b3befd1b5e07394c706a8bb980b1d7785e5976ec049b46df5f1326af5a2ea6d103fd07c95385ffab0cacbc86',
-    'xiaoxinAccessKey', 'xiaoxinSecretKey', NOW(), NOW(), 0
-);
 
--- 插入管理员用户
-INSERT IGNORE INTO `user` (
-    `id`, `userName`, `userAccount`, `userAvatar`, `gender`, `userRole`, `userPassword`, 
-    `accessKey`, `secretKey`, `createTime`, `updateTime`, `isDelete`
-) VALUES (
-    2, '系统管理员', 'admin', 'https://example.com/admin.jpg', 1, 'admin',
-    -- 密码为: admin123 (实际项目中应使用BCrypt)
-    'ac9689e2272427085e35b9d3e3e8bed88cb3434828b43b86fc0596cad4c6e270', 
-    'adminAccessKey', 'adminSecretKey', NOW(), NOW(), 0
-);
 
 -- 插入测试接口数据（可用的HTTP API接口）
 DELETE FROM `interface_info` WHERE `url` IN ('/api/geo/query', '/api/sample/random', '/api/data/test');
@@ -190,74 +156,8 @@ INSERT INTO `interface_info` (
  '{"uuid":"550e8400-e29b-41d4-a716-446655440000"}', 1);
 
 -- 为测试用户分配接口调用权限
-INSERT IGNORE INTO `user_interface_info` (`userId`, `interfaceInfoId`, `totalNum`, `leftNum`, `status`)
-SELECT 1, `id`, 0, 1000, 1 
-FROM `interface_info` 
-WHERE `url` IN ('/api/geo/query', '/api/sample/random', '/api/data/test');
+
 
 -- 为管理员分配所有接口权限
-INSERT IGNORE INTO `user_interface_info` (`userId`, `interfaceInfoId`, `totalNum`, `leftNum`, `status`)
-SELECT 2, `id`, 0, 9999, 1 
-FROM `interface_info`;
 
--- ==========================================================
--- 数据验证查询
--- ==========================================================
 
--- 验证用户数据
-SELECT '=== 用户信息验证 ===' as section;
-SELECT `id`, `userName`, `userAccount`, `accessKey`, `userRole`, `createTime` 
-FROM `user` WHERE `accessKey` IN ('xiaoxinAccessKey', 'adminAccessKey');
-
--- 验证接口数据
-SELECT '=== 接口信息验证 ===' as section;
-SELECT `id`, `name`, `url`, `providerUrl`, `method`, `authType`, `status`, `timeout` 
-FROM `interface_info` 
-WHERE `url` IN ('/api/geo/query', '/api/sample/random', '/api/data/test')
-ORDER BY `id`;
-
--- 验证用户权限
-SELECT '=== 用户接口权限验证 ===' as section;
-SELECT 
-    u.`userName`,
-    ii.`name` as interfaceName,
-    ii.`url`,
-    ii.`providerUrl`,
-    uii.`leftNum`,
-    uii.`status` as permissionStatus
-FROM `user` u
-JOIN `user_interface_info` uii ON u.`id` = uii.`userId`
-JOIN `interface_info` ii ON uii.`interfaceInfoId` = ii.`id`
-WHERE u.`accessKey` = 'xiaoxinAccessKey'
-ORDER BY ii.`id`;
-
-SELECT '=== 数据库初始化完成 ===' as section;
-SELECT 'API开放平台数据库初始化成功！可以启动应用进行测试。' as message;
-
--- ==========================================================
--- 使用说明
--- ==========================================================
-
-/*
-数据库初始化完成后，您可以：
-
-1. 启动应用服务：
-   - xiaoxinapi (主服务): http://localhost:8101
-   - xiaoxinapi-gateway (网关): http://localhost:9999
-
-2. 使用测试账号：
-   - 测试用户: testuser / testpassword
-   - 管理员: admin / admin123
-   - API测试密钥: xiaoxinAccessKey / xiaoxinSecretKey
-
-3. 测试接口：
-   - GET http://localhost:9999/api/geo/query (IP查询)
-   - GET http://localhost:9999/api/sample/random (JSON测试)
-   - GET http://localhost:9999/api/data/test (数据测试)
-
-4. 管理后台：
-   - http://localhost:8101 (Swagger文档)
-   - 接口管理、用户管理、调用统计等功能
-
-注意：请确保MySQL、Redis、Nacos等依赖服务已启动。
-*/

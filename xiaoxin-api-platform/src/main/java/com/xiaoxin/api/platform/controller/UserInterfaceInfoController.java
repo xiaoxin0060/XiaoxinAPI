@@ -50,7 +50,7 @@ public class UserInterfaceInfoController{
      * 创建
      *
      * @param userInterfaceInfoAddRequest
-     * @param request
+     *  
      * @return
      */
     @Operation(summary = "创建")
@@ -78,7 +78,7 @@ public class UserInterfaceInfoController{
      * 删除
      *
      * @param deleteRequest
-     * @param request
+     *  
      * @return
      */
     @Operation(summary = "删除")
@@ -107,7 +107,7 @@ public class UserInterfaceInfoController{
      * 更新
      *
      * @param userInterfaceInfoUpdateRequest
-     * @param request
+     *  
      * @return
      */
     @Operation(summary = "更新")
@@ -176,7 +176,7 @@ public class UserInterfaceInfoController{
      * 分页获取列表
      *
      * @param userInterfaceInfoQueryRequest
-     * @param request
+     *  
      * @return
      */
     @Operation(summary = "分页获取列表")

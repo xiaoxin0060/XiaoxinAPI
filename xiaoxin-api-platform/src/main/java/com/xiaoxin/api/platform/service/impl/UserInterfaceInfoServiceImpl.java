@@ -1,5 +1,6 @@
 package com.xiaoxin.api.platform.service.impl;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.xiaoxin.api.platform.common.ErrorCode;
@@ -69,11 +70,27 @@ public class UserInterfaceInfoServiceImpl extends ServiceImpl<UserInterfaceInfoM
         if (interfaceInfoId <= 0 || userId <= 0 || addCount <= 0) {
             throw new BusinessException(ErrorCode.PARAMS_ERROR);
         }
-        UpdateWrapper<UserInterfaceInfo> updateWrapper = new UpdateWrapper<>();
-        updateWrapper.eq("interfaceInfoId", interfaceInfoId);
-        updateWrapper.eq("userId", userId);
-        updateWrapper.setSql("leftNum = leftNum + " + addCount);
-        return this.update(updateWrapper);
+        // 先查询是否存在
+        LambdaQueryWrapper<UserInterfaceInfo> queryWrapper = new LambdaQueryWrapper<>();
+        queryWrapper.eq(UserInterfaceInfo::getInterfaceInfoId, interfaceInfoId)
+                    .eq(UserInterfaceInfo::getUserId, userId);
+
+        UserInterfaceInfo userInterfaceInfo = this.getOne(queryWrapper);
+
+        if (userInterfaceInfo == null) {
+            // 不存在则插入新记录
+            userInterfaceInfo = new UserInterfaceInfo();
+            userInterfaceInfo.setInterfaceInfoId(interfaceInfoId);
+            userInterfaceInfo.setUserId(userId);
+            userInterfaceInfo.setLeftNum(addCount);
+            userInterfaceInfo.setTotalNum(addCount);
+            return this.save(userInterfaceInfo);
+        } else {
+            // 存在则更新
+            userInterfaceInfo.setLeftNum(userInterfaceInfo.getLeftNum() + addCount);
+            userInterfaceInfo.setTotalNum(userInterfaceInfo.getTotalNum() + addCount);
+            return this.updateById(userInterfaceInfo);
+        }
     }
 
 }

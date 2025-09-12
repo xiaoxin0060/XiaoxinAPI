@@ -1,27 +1,6 @@
--- =====================================================
--- 网关过滤器链条测试数据脚本
--- 功能：为网关测试提供Mock接口的数据库配置
--- 使用：mysql -u root -p xiaoxinapi < gateway_test_data.sql
--- =====================================================
 
 USE `xiaoxinapi`;
 
--- =====================================================
--- 测试用户数据
--- =====================================================
-
--- 使用已存在的用户数据（用户ID: 3，已重置密钥对）
--- 用户信息：
--- - ID: 3
--- - 用户名: xiaoxin  
--- - 角色: admin
--- - AccessKey: ak_GZUxlpN8ZtHWGDqaqtao4jBU
--- - SecretKey: sk_eCclbpWXVc5bJuxiflTzzmsgEBXwq5gAX14Y93Lx (明文)
--- 注意：用户密钥对已重置，测试类已更新为新的密钥值
-
--- =====================================================
--- Mock接口配置数据
--- =====================================================
 
 -- 先删除已存在的测试接口配置
 DELETE FROM `interface_info` WHERE `url` IN ('/api/test/get', '/api/test/post');
@@ -91,101 +70,7 @@ INSERT INTO `interface_info` (
     NOW(), NOW(), 0
 );
 
--- =====================================================
--- 用户接口权限配置
--- =====================================================
 
--- 为测试用户分配Mock接口的调用权限（用户ID: 3）
-INSERT INTO `user_interface_info` (
-    `userId`, `interfaceInfoId`, `totalNum`, `leftNum`, `status`,
-    `createTime`, `updateTime`, `isDelete`
-) VALUES 
-    (3, 101, 0, 1000, 1, NOW(), NOW(), 0),  -- GET接口权限
-    (3, 102, 0, 1000, 1, NOW(), NOW(), 0);  -- POST接口权限
+-- 为测试用户分配Mock接口的调用权限
 
--- =====================================================
--- 数据验证查询
--- =====================================================
 
--- 验证使用的测试用户数据
-SELECT '=== 测试用户验证 ===' as section;
-SELECT `id`, `userName`, `userAccount`, `accessKey`, `userRole` 
-FROM `user` WHERE `id` = 3;
-
-SELECT '=== Mock接口验证 ===' as section;
-SELECT `id`, `name`, `url`, `providerUrl`, `method`, `status`, `timeout`, `rateLimit`
-FROM `interface_info` WHERE `id` IN (101, 102);
-
-SELECT '=== 用户接口权限验证 ===' as section;
-SELECT 
-    u.`userName`,
-    ii.`name` as interfaceName,
-    ii.`url`,
-    ii.`providerUrl`,
-    ii.`method`,
-    uii.`leftNum`,
-    uii.`status` as permissionStatus
-FROM `user` u
-JOIN `user_interface_info` uii ON u.`id` = uii.`userId`
-JOIN `interface_info` ii ON uii.`interfaceInfoId` = ii.`id`
-WHERE u.`id` = 3 AND ii.`id` IN (101, 102)
-ORDER BY ii.`id`;
-
--- =====================================================
--- 使用说明
--- =====================================================
-
-SELECT '=== 网关测试数据配置完成 ===' as section;
-SELECT '
-测试配置说明：
-
-1. 测试用户信息（使用已存在用户，密钥对已重置）：
-   - 用户ID: 3
-   - 用户名: xiaoxin
-   - AccessKey: ak_GZUxlpN8ZtHWGDqaqtao4jBU
-   - SecretKey: sk_eCclbpWXVc5bJuxiflTzzmsgEBXwq5gAX14Y93Lx
-   - 权限: 管理员
-
-2. Mock接口配置：
-   - GET接口: /api/test/get → http://localhost:8080/test/get
-   - POST接口: /api/test/post → http://localhost:8080/test/post
-   - 超时时间: 10秒
-   - 限流: 100次/分钟
-   - 配额: 1000次
-
-3. 测试前准备：
-   - 启动xiaoxin-mock-service服务 (端口8080)
-   - 启动xiaoxin-api-gateway服务 (端口9999)
-   - 确保Redis服务已启动
-
-4. 运行测试：
-   - 执行 GatewayFilterChainSimpleTest 测试类
-   - 验证过滤器链条完整执行
-   - 检查Mock接口正确响应
-
-5. 手动测试示例：
-   GET http://localhost:9999/api/test/get?name=test&userId=123
-   POST http://localhost:9999/api/test/post
-   
-   需要添加认证头部：
-   - accessKey: ak_GZUxlpN8ZtHWGDqaqtao4jBU
-   - timestamp: 当前时间戳
-   - nonce: 16位随机字符串
-   - sign: HMAC-SHA256签名（使用SecretKey: sk_eCclbpWXVc5bJuxiflTzzmsgEBXwq5gAX14Y93Lx）
-' as instructions;
-
--- =====================================================
--- 清理脚本（可选）
--- =====================================================
-
-/* 
--- 如需清理测试数据，执行以下SQL：
-
--- 删除测试接口配置
-DELETE FROM `user_interface_info` WHERE `userId` = 3 AND `interfaceInfoId` IN (101, 102);
-DELETE FROM `interface_info` WHERE `id` IN (101, 102);
-
--- 注意：不删除已存在的用户数据（用户ID: 3）
-
-SELECT '测试数据清理完成' as result;
-*/
