@@ -28,7 +28,7 @@ spring:
   data:
     redis:
       host: localhost
-      port: 9736
+      port: 6379
       database: 2
       timeout: 5000
       lettuce:
@@ -39,7 +39,7 @@ spring:
           min-idle: 0
 
 server:
-  port: 9999
+  port: 8090
 
 # 小新网关自定义配置
 xiaoxin:

@@ -16,14 +16,14 @@ spring:
   # 数据库配置
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
-    url: jdbc:mysql://localhost:5291/xiaoxinapi?useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Shanghai&useSSL=false
+    url: jdbc:mysql://localhost:3306/xiaoxinapi?useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Shanghai&useSSL=false
     username: root
     password: root
   # Redis 配置
   data:
     redis:
       host: localhost
-      port: 9736
+      port: 6379
       database: 1
       timeout: 5000
   # Elasticsearch 配置
@@ -38,7 +38,7 @@ spring:
       max-file-size: 10MB
 server:
   address: 0.0.0.0
-  port: 8101
+  port: 8080
   servlet:
     context-path: /api
     # cookie 30 天过期
@@ -80,3 +80,9 @@ xiaoxinapi:
   client:
     access-key: xiaoxinAccessKey
     secret-key: xiaoxinSecretKey
+
+# 小新API网关配置
+xiaoxin:
+  gateway:
+    # 本地环境：Gateway运行在localhost:8090
+    host: http://localhost:8090

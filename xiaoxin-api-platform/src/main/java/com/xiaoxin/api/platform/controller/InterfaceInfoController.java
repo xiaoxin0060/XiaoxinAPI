@@ -55,6 +55,24 @@ public class InterfaceInfoController{
     @Value("${security.authcfg.master-key:}")
     private String authcfgMasterKey;
 
+    /**
+     * Gateway服务地址配置
+     * 
+     * 技术说明：
+     * - 本地环境：http://localhost:9999（默认值）
+     * - Docker环境：http://xiaoxin-gateway:9999（容器名访问）
+     * - 生产环境：可配置为实际的Gateway服务地址
+     * 
+     * 配置路径：xiaoxin.gateway.host
+     * 
+     * 架构意义：
+     * - 支持不同环境的灵活部署
+     * - Platform内部测试时使用相同的SDK调用Gateway
+     * - 保证与外部开发者使用SDK的一致性
+     */
+    @Value("${xiaoxin.gateway.host:http://localhost:8090}")
+    private String gatewayHost;
+
     // region 增删改查
 
     /**
@@ -343,7 +361,10 @@ public class InterfaceInfoController{
         User loginUser = UserContextHolder.requireCurrentUser();
         String accessKey = loginUser.getAccessKey();
         String secretKey = loginUser.getSecretKey();
-        XiaoxinApiClient tempClient = new XiaoxinApiClient(accessKey, secretKey);
+        
+        // 使用配置化的Gateway地址，支持Docker环境部署
+        // 架构说明：Platform作为管理端，内部调用Gateway进行接口代理测试
+        XiaoxinApiClient tempClient = new XiaoxinApiClient(accessKey, secretKey, gatewayHost);
         
         // 调用真实接口 - 使用企业级智能参数转换
         try {
