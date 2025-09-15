@@ -1,0 +1,56 @@
+services:
+  mysql:
+    volumes:
+      - ./sql:/docker-entrypoint-initdb.d:ro
+    command: >
+      --default-time-zone='+08:00'
+      --character-set-server=utf8mb4
+      --collation-server=utf8mb4_unicode_ci
+      --default-authentication-plugin=mysql_native_password
+      --max-connections=120
+      --innodb-buffer-pool-size=128M
+      --skip-performance-schema
+      --bind-address=0.0.0.0
+    mem_limit: 208m
+
+  redis:
+    image: redis:7.2-alpine
+    volumes: []
+    command: >
+      redis-server
+      --requirepass redis123
+      --appendonly no
+      --save ""
+      --maxmemory 16mb
+      --maxmemory-policy allkeys-lru
+    mem_limit: 20m
+
+  nacos:
+    environment:
+      JVM_XMS: 288m
+      JVM_XMX: 288m
+      JVM_XMN: 96m
+    mem_limit: 368m
+
+  xiaoxin-platform:
+    image: krisxin/xiaoxin-platform:${TAG}
+    build: null
+    environment:
+      JAVA_OPTS: "-Xms192m -Xmx384m -XX:MaxMetaspaceSize=128m -XX:MaxDirectMemorySize=48m -XX:+UseSerialGC"
+    mem_limit: 512m
+
+  xiaoxin-gateway:
+    image: krisxin/xiaoxin-gateway:${TAG}
+    build: null
+    environment:
+      JAVA_OPTS: "-Xms160m -Xmx224m -XX:MaxMetaspaceSize=96m -XX:MaxDirectMemorySize=32m -XX:+UseSerialGC"
+    mem_limit: 288m
+
+  xiaoxin-mock:
+    profiles:
+      - dev
+    image: krisxin/xiaoxin-mock:${TAG}
+    build: null
+    environment:
+      JAVA_OPTS: "-Xms48m -Xmx80m -XX:MaxMetaspaceSize=48m -XX:+UseSerialGC"
+    mem_limit: 96m

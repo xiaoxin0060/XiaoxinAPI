@@ -1,0 +1,129 @@
+# 网关Docker环境配置
+# 技术要点：解决网关在容器环境中的路由和注册问题
+
+spring:
+  application:
+    name: xiaoxin-api-gateway
+  cloud:
+    gateway:
+      globalcors:
+        cors-configurations:
+          '[/**]':
+            allowedOrigins: "*"
+            allowedMethods: "*"
+            allowedHeaders: "*"
+            maxAge: 3600
+      default-filters:
+        - AddResponseHeader=source, xiaoxin
+      routes:
+        - id: dynamic_proxy_route
+          uri: no://op
+          predicates:
+            - Path=/api/**
+  
+  # Redis配置 - 网关使用独立数据库
+  data:
+    redis:
+      host: redis
+      port: 6379
+      password: redis123  # 🎯 添加Redis认证密码
+      database: 2  # 网关使用database 2，避免与平台服务冲突
+      timeout: 5000
+      lettuce:
+        pool:
+          max-active: 8
+          max-wait: -1
+          max-idle: 8
+          min-idle: 0
+
+# 服务器配置
+server:
+  address: 0.0.0.0  # 容器内必须监听所有接口
+  port: 8090
+
+# 网关自定义配置
+xiaoxin:
+  gateway:
+    new-architecture:
+      enabled: true
+    
+    filters:
+      logging: true
+      security: true
+      authentication: true
+      interface-validation: true
+      rate-limit: true
+      quota: true
+      proxy: true
+      response: true
+
+    # 🔒 企业级安全配置 - 内网专用版
+    # 架构说明：仅允许Platform服务访问Gateway，实现安全的内网代理架构  
+    security:
+      ip-whitelist:
+        # ✅ 核心业务访问：Platform容器访问Gateway
+        - "172.18.0.0/16"   # Docker默认桥接网络段
+        - "172.19.0.0/16"   # Docker Compose自定义网络段
+        - "172.20.0.0/16"   # 项目可能使用的网络段
+        - "10.0.0.0/8"      # Docker内网网段
+        - "192.168.0.0/16"  # 本地开发网段
+        # 🔧 系统维护：容器内部健康检查必需
+        - "127.0.0.1"       # 本地回环（健康检查和内部调用）
+        - "::1"             # IPv6本地回环
+      
+      signature-timeout-seconds: 300
+      nonce-length: 16
+      enable-timestamp-validation: true
+      enable-replay-protection: true
+
+    rate-limit:
+      enabled: true
+      window-seconds: 60
+      default-limit: 1000
+      redis-key-prefix: "xiaoxin:rate_limit"
+
+    circuit-breaker:
+      enabled: true
+      failure-threshold: 5
+      window-minutes: 5
+      open-timeout-minutes: 1
+      redis-key-prefix: "xiaoxin:circuit"
+
+# Dubbo配置
+dubbo:
+  registry:
+    address: nacos://nacos:8848
+    register-mode: instance
+    parameters:
+      username: nacos
+      password: nacos
+      namespace: ""
+      group: ""
+      # 🎯 Nacos 3.x认证参数 - URL安全Base64编码（无特殊字符）
+      naming.auth.enable: true
+      naming.auth.token: VGhpc0lzTXlDdXN0b21TZWNyZXRLZXkwMTIzNDU2Nzg5MDB
+      naming.auth.identity.key: serverIdentity
+      naming.auth.identity.value: security
+  # 🎯 明确禁用配置中心，只使用注册中心
+  config-center:
+    address: ""
+  protocol:
+    name: tri
+    port: 50052
+  application:
+    qos-enable: false
+    name: gateway-service
+    logger: slf4j
+
+# 安全配置
+security:
+  authcfg:
+    master-key: ${AUTHCFG_MASTER_KEY:0123456789ABCDEF0123456789ABCDEF}
+
+# 日志配置
+logging:
+  level:
+    com.xiaoxin.api.gateway: INFO
+    org.springframework.cloud.gateway: WARN
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{50} - %msg%n"

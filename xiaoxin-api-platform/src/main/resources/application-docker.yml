@@ -1,0 +1,130 @@
+# Docker环境配置文件
+# 技术要点：解决容器网络通信问题
+
+spring:
+  application:
+    name: xiaoxin-api-platform
+  
+  # MVC配置
+  mvc:
+    pathmatch:
+      matching-strategy: ant_path_matcher
+  
+  # Session配置
+  session:
+    timeout: 2592000
+  
+  # 数据库配置 - 关键：使用Docker服务名而不是localhost
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    # 原理：mysql是docker-compose中定义的服务名，Docker会自动解析为容器IP
+    url: jdbc:mysql://mysql:3306/xiaoxinapi?useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Shanghai&useSSL=false&autoReconnect=true&failOverReadOnly=false&maxReconnects=3&initialTimeout=2
+    username: root
+    password: root
+    # 🎯 添加连接池配置 - 解决数据库连接问题
+    hikari:
+      connection-timeout: 60000
+      maximum-pool-size: 20
+      minimum-idle: 5
+      idle-timeout: 300000
+      max-lifetime: 900000
+      connection-test-query: SELECT 1
+      validation-timeout: 3000
+      leak-detection-threshold: 60000
+      # 🎯 重要：启动时立即验证连接
+      initialize-fail-timeout: 1
+    
+  # Redis配置 - 使用服务名
+  data:
+    redis:
+      host: redis  # 服务名，不是localhost
+      port: 6379   # 标准端口
+      password: redis123  # 🎯 添加Redis认证密码
+      database: 1
+      timeout: 5000
+      lettuce:
+        pool:
+          max-active: 8
+          max-wait: -1
+          max-idle: 8
+          min-idle: 0
+  
+  # 🗑️ Elasticsearch已移除 - 简化学习配置
+  # 💡 教学说明：项目中虽有ES依赖，但为了专注Docker学习重点，暂时移除
+  # 如需启用，可在docker-compose.yml中添加elasticsearch服务
+
+# 服务器配置
+server:
+  # 关键：0.0.0.0监听所有网络接口，容器内必须这样配置
+  address: 0.0.0.0
+  port: 8080
+  servlet:
+    context-path: /api
+    session:
+      cookie:
+        max-age: 2592000
+
+# MyBatis Plus配置
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: false
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+  global-config:
+    db-config:
+      logic-delete-field: isDelete
+      logic-delete-value: 1
+      logic-not-delete-value: 0
+
+# 安全配置
+security:
+  authcfg:
+    master-key: ${AUTHCFG_MASTER_KEY:0123456789ABCDEF0123456789ABCDEF}
+
+# Dubbo配置 - 使用服务名
+dubbo:
+  registry:
+    # nacos是服务名，Docker网络会自动解析
+    address: nacos://nacos:8848
+    register-mode: instance
+    parameters:
+      username: nacos
+      password: nacos
+      namespace: ""
+      group: ""
+      # 🎯 Nacos 3.x认证参数 - URL安全Base64编码（无特殊字符）
+      naming.auth.enable: true
+      naming.auth.token: VGhpc0lzTXlDdXN0b21TZWNyZXRLZXkwMTIzNDU2Nzg5MDB
+      naming.auth.identity.key: serverIdentity
+      naming.auth.identity.value: security
+  # 🎯 明确禁用配置中心，只使用注册中心
+  config-center:
+    address: ""
+  protocol:
+    name: tri
+    port: 50051
+  application:
+    qos-enable: false
+    name: platform-service
+    logger: slf4j
+
+# 小新API客户端配置
+xiaoxinapi:
+  client:
+    access-key: xiaoxinAccessKey
+    secret-key: xiaoxinSecretKey
+
+# 小新API网关配置 - Docker环境  
+xiaoxin:
+  gateway:
+    # Docker环境：通过容器名访问Gateway服务
+    # 技术说明：Docker Compose为每个服务创建内部DNS记录
+    # xiaoxin-gateway会自动解析为Gateway容器的IP地址
+    host: http://xiaoxin-gateway:8090
+
+# 日志配置 - Docker环境优化
+logging:
+  level:
+    com.xiaoxin.api.platform: INFO
+    org.springframework: WARN
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{50} - %msg%n"

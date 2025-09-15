@@ -1,0 +1,29 @@
+# Mock服务Docker环境配置
+# 技术要点：简单的Mock服务配置，无需复杂依赖
+
+spring:
+  application:
+    name: xiaoxin-mock-service
+
+# 服务器配置
+server:
+  address: 0.0.0.0  # 容器内监听所有接口
+  port: 8081
+
+# 监控配置 - 启用健康检查端点
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: always
+
+# 日志配置
+logging:
+  level:
+    com.xiaoxin.api: INFO
+    org.springframework: WARN
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{50} - %msg%n"

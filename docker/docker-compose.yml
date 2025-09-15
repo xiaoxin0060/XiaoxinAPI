@@ -1,0 +1,254 @@
+# 🎯 小新API项目 - Docker Compose配置
+# 设计目标：展现技术深度，适合实习面试
+# 架构：Platform(8080公网) + Gateway(8090内网) 通信
+
+version: '3.8'
+
+# 📊 网络设计：内网隔离架构
+networks:
+  xiaoxin-internal:
+    driver: bridge
+    name: xiaoxin-network
+    # 🎯 面试亮点：自定义网段，避免与宿主机冲突
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+
+# 💾 数据持久化：分层存储策略
+volumes:
+  # 🎯 面试亮点1：显式driver声明体现配置规范性
+  mysql-data:
+    driver: local
+    name: xiaoxin_mysql_data
+  redis-data:
+    driver: local
+    name: xiaoxin_redis_data
+  # 🎯 面试亮点2：应用日志也可选择命名卷管理
+  platform-logs:
+    driver: local
+    name: xiaoxin_platform_logs
+  gateway-logs:
+    driver: local
+    name: xiaoxin_gateway_logs
+
+services:
+  # 🗄️ MySQL数据库 - 数据持久化
+  mysql:
+    image: mysql:8.2
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: xiaoxinapi
+      TZ: Asia/Shanghai
+    ports:
+      - "3306:3306"  # 🎯 标准端口映射
+    volumes:
+      # 🎯 面试要点：数据持久化 - 防止容器重启数据丢失
+      - mysql-data:/var/lib/mysql
+      # 🎯 面试要点：初始化脚本 - 自动化数据库搭建
+      - ../xiaoxin-api-platform/sql:/docker-entrypoint-initdb.d:ro
+    networks:
+      - xiaoxin-internal
+    # 🎯 面试亮点：MySQL优化参数 - 体现生产环境意识
+    command: >
+      --default-time-zone='+08:00'
+      --character-set-server=utf8mb4
+      --collation-server=utf8mb4_unicode_ci
+      --default-authentication-plugin=mysql_native_password
+      --max-connections=1000
+      --innodb-buffer-pool-size=256M
+      --slow-query-log=1
+      --slow-query-log-file=/var/lib/mysql/slow.log
+      --long-query-time=2
+      --bind-address=0.0.0.0
+    # 🎯 面试亮点：健康检查 - 服务可用性保证 + 数据库就绪验证
+    healthcheck:
+      test: ["CMD", "sh", "-c", "mysqladmin ping -h localhost -uroot -proot && mysql -h localhost -uroot -proot -e 'SELECT COUNT(*) FROM xiaoxinapi.user;' > /dev/null && mysql -h 0.0.0.0 -uroot -proot -e 'SELECT 1;' > /dev/null"]
+      timeout: 30s
+      retries: 8
+      interval: 10s
+      start_period: 90s
+
+  # 🔴 Redis缓存 - 性能优化  
+  redis:
+    image: redis:7.2-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"  # 🎯 标准端口映射
+    volumes:
+      # 🎯 面试要点：Redis持久化策略
+      - redis-data:/data
+    networks:
+      - xiaoxin-internal
+    # 🎯 面试亮点：Redis优化配置 - AOF+RDB双持久化
+    command: >
+      redis-server 
+      --requirepass redis123
+      --appendonly yes
+      --appendfsync everysec
+      --save 900 1
+      --save 300 10
+      --save 60 10000
+      --maxmemory 256mb
+      --maxmemory-policy allkeys-lru
+    # 🎯 面试亮点：健康检查
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "redis123", "ping"]
+      timeout: 3s
+      retries: 3
+      interval: 10s
+
+  # 🎯 Nacos服务注册中心 - Dubbo微服务架构核心
+  nacos:
+    image: nacos/nacos-server:latest
+    restart: unless-stopped
+    ports:
+      - "8848:8848"  # 🎯 Nacos控制台和API端口  
+      - "9848:9848"  # 🎯 Nacos客户端gRPC请求服务端端口
+    environment:
+      # 🎯 面试要点：单机模式配置
+      PREFER_HOST_MODE: hostname
+      MODE: standalone
+      
+      # 🎯 面试重点：Nacos 3.x 认证配置 
+      NACOS_AUTH_ENABLED: true
+      # 🎯 32字符密钥的URL安全Base64编码 (无+/=特殊字符)
+      NACOS_AUTH_TOKEN: VGhpc0lzTXlDdXN0b21TZWNyZXRLZXkwMTIzNDU2Nzg5MDB
+      NACOS_AUTH_IDENTITY_KEY: serverIdentity
+      NACOS_AUTH_IDENTITY_VALUE: security
+      
+      # 🎯 JVM优化参数
+      JVM_XMS: 512m
+      JVM_XMX: 512m
+      JVM_XMN: 256m
+    volumes:
+      # 🎯 Nacos日志持久化
+      - ../logs/nacos:/home/nacos/logs
+    networks:
+      - xiaoxin-internal
+    # 🎯 使用Derby内嵌数据库，无需依赖MySQL
+    # 🎯 面试亮点：健康检查 - 确保Nacos完全启动
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8848/nacos/v1/ns/operator/metrics"]
+      timeout: 15s
+      retries: 10
+      interval: 30s
+      start_period: 120s
+
+  # 🏢 Platform服务 - 公网访问
+  xiaoxin-platform:
+    build:
+      context: ../xiaoxin-api-platform
+      dockerfile: ../docker/platform/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8082:8080"  # 🎯 映射到8082避免端口冲突
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      # 🎯 关键：Platform如何找到Gateway (更新端口)
+      XIAOXIN_GATEWAY_HOST: http://xiaoxin-gateway:8090
+      # 🎯 面试亮点：JVM调优参数 - 体现性能意识
+      JAVA_OPTS: "-Xmx512m -Xms256m -XX:+UseG1GC -XX:+UseStringDeduplication"
+      # 🎯 等待MySQL完全就绪
+      SPRING_DATASOURCE_INITIALIZATION_MODE: always
+    volumes:
+      # 🎯 方式1：Bind Mount - 便于开发调试
+      - ../logs/platform:/app/logs
+      # 🎯 方式2：Named Volume - 生产环境推荐
+      # - platform-logs:/app/logs
+    networks:
+      - xiaoxin-internal
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      nacos:
+        condition: service_healthy
+    # 🎯 添加启动延迟，确保MySQL SQL脚本执行完成
+    deploy:
+      restart_policy:
+        condition: on-failure
+        delay: 30s
+        max_attempts: 5
+    # 🎯 暂时禁用健康检查 - 排查问题
+    # healthcheck:
+    #   test: ["CMD", "curl", "-f", "http://localhost:8080/api/doc.html || exit 1"]
+    #   timeout: 15s
+    #   retries: 5
+    #   interval: 30s
+    #   start_period: 180s  # 给予3分钟启动时间
+    # 🎯 面试亮点：日志配置 - 生产环境日志管理
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+  # 🌉 Gateway服务 - 内网专用
+  xiaoxin-gateway:
+    build:
+      context: ../xiaoxin-api-gateway
+      dockerfile: ../docker/gateway/Dockerfile  
+    restart: unless-stopped
+    # 🎯 关键架构：不暴露端口到宿主机，只能被Platform访问
+    # ports:
+    #   - "8090:8090"  # 生产环境必须注释，面试时可展示安全意识
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      # 🎯 面试亮点：JVM调优
+      JAVA_OPTS: "-Xmx256m -Xms128m -XX:+UseG1GC"
+    volumes:
+      # 🎯 日志持久化
+      - ../logs/gateway:/app/logs
+    networks:
+      - xiaoxin-internal
+    depends_on:
+      redis:
+        condition: service_healthy
+      nacos:
+        condition: service_healthy
+    # 🎯 暂时禁用健康检查 - 排查问题
+    # healthcheck:
+    #   test: ["CMD", "curl", "-f", "http://localhost:8090/actuator/health || exit 1"]
+    #   timeout: 15s
+    #   retries: 5
+    #   interval: 30s
+    #   start_period: 180s  # 给予3分钟启动时间
+    # 🎯 面试亮点：日志轮转配置
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "3"
+
+  # 🔧 Mock服务 - API模拟测试
+  xiaoxin-mock:
+    build:
+      context: ../xiaoxin-mock-service
+      dockerfile: ../docker/mock/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8081:8081"  # 🎯 Mock服务标准端口
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      JAVA_OPTS: "-Xmx128m -Xms64m -XX:+UseSerialGC"
+    volumes:
+      - ../logs/mock:/app/logs
+    networks:
+      - xiaoxin-internal
+    # 🎯 面试亮点：轻量化配置 - 不同服务差异化管理
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "2"
+
+# 🎯 面试总结：
+# 1. 网络隔离：自定义网络 + IP段规划
+# 2. 数据持久化：分层存储策略 (数据/日志/配置)  
+# 3. 服务发现：Docker内部DNS + 环境变量
+# 4. 健康检查：多层次监控体系
+# 5. 日志管理：轮转 + 持久化
+# 6. 性能优化：JVM调优 + 资源配置
+# 7. 安全隔离：Gateway内网专用
