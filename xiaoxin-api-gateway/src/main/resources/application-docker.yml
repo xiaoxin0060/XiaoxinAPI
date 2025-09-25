@@ -6,20 +6,22 @@ spring:
     name: xiaoxin-api-gateway
   cloud:
     gateway:
-      globalcors:
-        cors-configurations:
-          '[/**]':
-            allowedOrigins: "*"
-            allowedMethods: "*"
-            allowedHeaders: "*"
-            maxAge: 3600
-      default-filters:
-        - AddResponseHeader=source, xiaoxin
-      routes:
-        - id: dynamic_proxy_route
-          uri: no://op
-          predicates:
-            - Path=/api/**
+      server:
+        webflux:
+          globalcors:
+            cors-configurations:
+              '[/**]':
+                allowedOrigins: "*"
+                allowedMethods: "*"
+                allowedHeaders: "*"
+                maxAge: 3600
+          default-filters:
+            - AddResponseHeader=source, xiaoxin
+          routes:
+            - id: dynamic_proxy_route
+              uri: no://op
+              predicates:
+                - Path=/api/**
   
   # Redis配置 - 网关使用独立数据库
   data:

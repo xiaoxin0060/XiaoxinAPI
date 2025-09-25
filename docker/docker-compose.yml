@@ -129,7 +129,7 @@ services:
     # 🎯 使用Derby内嵌数据库，无需依赖MySQL
     # 🎯 面试亮点：健康检查 - 确保Nacos完全启动
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8848/nacos/v1/ns/operator/metrics"]
+      test: ["CMD", "curl", "-f", "http://localhost:8848/nacos"]
       timeout: 15s
       retries: 10
       interval: 30s

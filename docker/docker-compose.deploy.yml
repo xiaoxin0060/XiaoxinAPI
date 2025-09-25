@@ -27,10 +27,10 @@ services:
 
   nacos:
     environment:
-      JVM_XMS: 288m
-      JVM_XMX: 288m
-      JVM_XMN: 96m
-    mem_limit: 368m
+      JVM_XMS: 384m
+      JVM_XMX: 384m
+      JVM_XMN: 128m
+    mem_limit: 448m
 
   xiaoxin-platform:
     image: krisxin/xiaoxin-platform:${TAG}
