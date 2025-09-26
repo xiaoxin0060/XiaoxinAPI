@@ -51,6 +51,13 @@ public class XiaoxinApiClient {
     }
 
     /**
+     * 便于排错与测试：返回当前客户端目标网关地址
+     */
+    public String getHost() {
+        return host;
+    }
+
+    /**
      * 统一接口调用方法
      * 
      * 使用示例：
