@@ -106,7 +106,7 @@ services:
     container_name: xiaoxin-platform
     restart: unless-stopped
     ports:
-      - "8080:8080"  # 🎯 Spring Boot标准端口
+      - "8082:8080"  # 映射到宿主8082，避免与其他服务(如Nacos/UI)冲突
     environment:
       SPRING_PROFILES_ACTIVE: docker
       # 🎯 关键：Platform如何找到Gateway (更新端口)
@@ -125,13 +125,7 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-    # 🎯 面试亮点：健康检查 - 确保服务正常启动
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/api/health || exit 1"]
-      timeout: 10s
-      retries: 3
-      interval: 30s
-      start_period: 60s
+    # 健康检查改由 Dockerfile 的 HEALTHCHECK 统一管理
     # 🎯 面试亮点：日志配置 - 生产环境日志管理
     logging:
       driver: "json-file"
@@ -161,13 +155,7 @@ services:
     depends_on:
       redis:
         condition: service_healthy
-    # 🎯 面试亮点：内部健康检查（不对外暴露）
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8090/actuator/health || exit 1"]
-      timeout: 10s
-      retries: 3
-      interval: 30s
-      start_period: 60s
+    # 健康检查由 Dockerfile 的 HEALTHCHECK 提供
     # 🎯 面试亮点：日志轮转配置
     logging:
       driver: "json-file"

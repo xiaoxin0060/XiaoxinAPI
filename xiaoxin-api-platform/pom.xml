@@ -25,6 +25,12 @@
             <groupId>com.xiaoxin</groupId>
             <artifactId>xiaoxin-client-sdk</artifactId>
         </dependency>
+
+        <!-- 监控与健康检查 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
         
         <!-- 密码加密：BCrypt -->
         <dependency>

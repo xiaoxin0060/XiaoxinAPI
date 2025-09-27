@@ -30,9 +30,9 @@ USER app
 # Mock服务端口
 EXPOSE 8081
 
-# 健康检查（使用actuator健康检查端点）
+# 健康检查（使用actuator健康检查端点，注意 mock 的 context-path 为 /api）
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
-  CMD curl -f http://localhost:8081/actuator/health || exit 1
+  CMD curl -f http://localhost:8081/api/actuator/health || exit 1
 
 # 启动命令
 # Mock服务资源需求较小

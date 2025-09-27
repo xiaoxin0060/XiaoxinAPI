@@ -26,11 +26,11 @@ spring:
       port: 6379
       database: 1
       timeout: 5000
-  # Elasticsearch 配置
-  elasticsearch:
-    uris: http://localhost:9200
-    username: root
-    password: 123456
+
+management:
+  health:
+    elasticsearch:
+      enabled: false
   # 文件上传
   servlet:
     multipart:

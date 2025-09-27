@@ -39,12 +39,12 @@ RUN chown app:app app.jar
 USER app
 
 # 9. 暴露端口（声明性的，实际端口映射在docker run时指定）
-EXPOSE 8080
+EXPOSE 8082
 
 # 10. 健康检查（生产环境重要特性）
 # 原理：Docker可以通过健康检查自动重启不健康的容器
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-  CMD curl -f http://localhost:8080/api/health || exit 1
+  CMD curl -f http://localhost:8082/api/actuator/health || exit 1
 
 # 11. 启动命令 - 使用docker环境配置
 # 技术要点：

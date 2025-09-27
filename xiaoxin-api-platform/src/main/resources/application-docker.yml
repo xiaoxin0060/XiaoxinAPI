@@ -49,15 +49,13 @@ spring:
           max-idle: 8
           min-idle: 0
   
-  # 🗑️ Elasticsearch已移除 - 简化学习配置
-  # 💡 教学说明：项目中虽有ES依赖，但为了专注Docker学习重点，暂时移除
-  # 如需启用，可在docker-compose.yml中添加elasticsearch服务
+
 
 # 服务器配置
 server:
   # 关键：0.0.0.0监听所有网络接口，容器内必须这样配置
   address: 0.0.0.0
-  port: 8080
+  port: 8082
   servlet:
     context-path: /api
     session:
@@ -137,3 +135,17 @@ logging:
     org.springframework: WARN
   pattern:
     console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{50} - %msg%n"
+
+# 监控配置 - 启用健康检查端点
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: always
+# 接口文档配置 - 禁用
+knife4j:
+  enable: false
+  production: true
