@@ -6,61 +6,14 @@ import com.xiaoxin.api.platform.model.entity.User;
 import com.xiaoxin.api.platform.service.InnerUserInterfaceInfoService;
 import org.apache.dubbo.config.annotation.DubboReference;
 import org.springframework.cloud.gateway.filter.GatewayFilterChain;
-import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Mono;
 
 /**
  * 配额过滤器 - 用户接口调用次数管理
  * 
- * 业务职责：
- * - 检查用户对特定接口的调用配额
- * - 预扣减调用次数，防止配额穿透
- * - 支持按用户+接口维度的精细化配额控制
- * - 实现计费和权限管理的基础
- * - 防止恶意用户无限制调用接口
- * 
- * 调用链路：
- * 请求 → 获取用户和接口信息 → Dubbo查询配额 → 预扣减 → 通过继续/拒绝配额不足
- * 
- * 技术实现：
- * - 使用@DubboReference调用平台服务管理配额
- * - 复用原有preConsume预扣减逻辑，保持兼容性
- * - 响应式编程：异步处理Dubbo RPC调用
- * - 异常安全：配额服务异常时的降级策略
- * - 事务性：预扣减失败时不影响主流程
- * 
- * 配额模型：
- * - UserInterfaceInfo：用户接口关系表
- * - totalNum：总调用次数（统计用）
- * - leftNum：剩余调用次数（业务控制）
- * - status：关系状态（0-禁用，1-启用）
- * 
- * 预扣减机制：
- * - 请求开始：预扣减1次调用次数
- * - 调用成功：totalNum+1，已扣减的leftNum不变
- * - 调用失败：考虑是否回滚leftNum（业务决策）
- * 
- * 并发控制：
- * - 数据库行锁：防止并发修改同一用户配额
- * - 原子操作：扣减操作的原子性保证
- * - 乐观锁：version字段控制并发更新
- * - 分布式锁：Redis锁防止分布式并发（可选）
- * 
- * 配额策略：
- * - 免费额度：新用户默认分配的免费调用次数
- * - 付费额度：用户购买的调用次数包
- * - 无限额度：VIP用户或内部用户的特殊权限
- * - 临时额度：活动期间的临时增加配额
- * 
- * 错误处理：
- * - 配额不足：返回429 Too Many Requests
- * - 用户未开通：返回429 Too Many Requests
- * - 服务异常：记录日志，考虑降级策略
- * - 网络超时：记录日志，考虑重试机制
- * 
- * @author xiaoxin
- * @since 1.0.0
+ * 职责：检查用户接口调用配额，预扣减调用次数，防止配额穿透
+ * 机制：Dubbo RPC调用平台服务，原子操作保证并发安全
  */
 public class QuotaFilter extends BaseGatewayFilter {
 
@@ -99,13 +52,13 @@ public class QuotaFilter extends BaseGatewayFilter {
         if (user == null) {
             log.error("用户信息为空，无法进行配额检查");
             recordFilterMetrics("QuotaFilter", startTime, false, null);
-            return handleNoAuth(exchange.getResponse());
+            return handleAuthFailed(exchange);
         }
         
         if (interfaceInfo == null) {
             log.error("接口信息为空，无法进行配额检查");
             recordFilterMetrics("QuotaFilter", startTime, false, null);
-            return handleNoAuth(exchange.getResponse());
+            return handleAuthFailed(exchange);
         }
         
         return performQuotaCheck(user, interfaceInfo)
@@ -116,8 +69,7 @@ public class QuotaFilter extends BaseGatewayFilter {
                     
                     recordFilterMetrics("QuotaFilter", startTime, false, null);
                     
-                    return writeErrorResponse(exchange.getResponse(), 
-                        "调用额度不足或未开通", HttpStatus.TOO_MANY_REQUESTS);
+                    return handleQuotaExceeded(exchange);
                 }
                 
                 log.debug("配额检查通过 - 用户ID: {}, 接口ID: {}", user.getId(), interfaceInfo.getId());
@@ -220,8 +172,7 @@ public class QuotaFilter extends BaseGatewayFilter {
         if (strictMode) {
             // 严格模式：配额服务异常时拒绝请求
             log.error("配额服务异常，严格模式下拒绝请求", error);
-            return writeErrorResponse(exchange.getResponse(), 
-                "配额服务暂时不可用，请稍后重试", HttpStatus.SERVICE_UNAVAILABLE);
+            return handleSystemError(error, exchange);
         } else {
             // 宽松模式：配额服务异常时允许请求通过
             log.warn("配额服务异常，宽松模式下允许请求通过", error);

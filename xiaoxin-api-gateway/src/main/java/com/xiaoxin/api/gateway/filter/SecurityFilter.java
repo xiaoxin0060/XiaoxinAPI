@@ -1,5 +1,7 @@
 package com.xiaoxin.api.gateway.filter;
 
+import com.xiaoxin.api.gateway.exception.GatewayErrorCode;
+import com.xiaoxin.api.gateway.exception.GatewayException;
 import com.xiaoxin.api.gateway.filter.base.BaseGatewayFilter;
 import org.springframework.cloud.gateway.filter.GatewayFilterChain;
 import org.springframework.web.server.ServerWebExchange;
@@ -10,47 +12,8 @@ import java.util.List;
 /**
  * 安全过滤器 - IP白名单验证
  * 
- * 业务职责：
- * - 验证客户端IP是否在白名单中
- * - 支持单IP和CIDR网段配置
- * - 提供安全访问控制第一道防线
- * - 支持多环境差异化配置
- * 
- * 调用链路：
- * 请求 → 获取客户端IP → 白名单验证 → 通过继续/拒绝返回403
- * 
- * 技术实现：
- * - 支持IPv4精确匹配：127.0.0.1
- * - 支持CIDR网段匹配：192.168.0.0/16  
- * - 支持IPv6地址匹配：::1
- * - 配置化白名单，支持多环境差异化
- * - 复用原有IP白名单验证逻辑，保持兼容性
- * 
- * 安全机制：
- * - 默认拒绝策略：不在白名单的IP一律拒绝
- * - 早期拦截：在认证之前进行IP验证，减少攻击面
- * - 日志记录：记录被拒绝的IP，便于安全分析
- * - 配置验证：启动时验证IP格式，避免运行时错误
- * 
- * 性能优化：
- * - 精确匹配优先：先进行字符串比较，再进行CIDR计算
- * - 异常缓存：缓存解析失败的IP，避免重复计算
- * - 短路逻辑：找到匹配项立即返回，减少不必要的计算
- * 
- * 配置示例：
- * <pre>
- * xiaoxin:
- *   gateway:
- *     security:
- *       ip-whitelist:
- *         - "127.0.0.1"           # 本地回环
- *         - "::1"                 # IPv6本地回环
- *         - "192.168.0.0/16"      # 内网网段
- *         - "10.0.0.0/8"          # 企业内网
- * </pre>
- * 
- * @author xiaoxin
- * @since 1.0.0
+ * 职责：验证客户端IP是否在白名单中，支持CIDR网段匹配
+ * 策略：X-Forwarded-For → X-Real-IP → RemoteAddress
  */
 public class SecurityFilter extends BaseGatewayFilter {
 
@@ -64,15 +27,31 @@ public class SecurityFilter extends BaseGatewayFilter {
 
         long startTime = System.currentTimeMillis();
         
-        // 从前一个过滤器获取客户端IP
+        // 获取客户端IP（兜底逻辑确保在LoggingFilter禁用时也能工作）
         String clientIp = exchange.getAttribute("client.ip");
+        if (clientIp == null) {
+            // 兜底逻辑：按优先级提取客户端IP
+            String forwarded = exchange.getRequest().getHeaders().getFirst("X-Forwarded-For");
+            if (forwarded != null && !forwarded.isEmpty()) {
+                clientIp = forwarded.split(",")[0].trim();
+            } else {
+                String realIp = exchange.getRequest().getHeaders().getFirst("X-Real-IP");
+                if (realIp != null && !realIp.isEmpty()) {
+                    clientIp = realIp.trim();
+                } else {
+                    clientIp = exchange.getRequest().getRemoteAddress() != null ? 
+                        exchange.getRequest().getRemoteAddress().getAddress().getHostAddress() : "unknown";
+                }
+            }
+        }
         List<String> ipWhitelist = getSecurityConfig().getIpWhitelist();
         
         // 执行IP白名单验证
         if (!isIpAllowed(clientIp, ipWhitelist)) {
             log.warn("IP访问被拒绝 - 客户端IP: {}, 白名单: {}", clientIp, ipWhitelist);
             recordFilterMetrics("SecurityFilter", startTime, false, null);
-            return handleNoAuth(exchange.getResponse());
+            // 使用更语义化的IP禁止错误码
+            return handleGatewayException(new GatewayException(GatewayErrorCode.IP_FORBIDDEN), exchange);
         }
         
         log.debug("IP白名单验证通过 - 客户端IP: {}", clientIp);

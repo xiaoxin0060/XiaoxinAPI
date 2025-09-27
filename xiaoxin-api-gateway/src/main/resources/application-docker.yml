@@ -29,7 +29,7 @@ spring:
       host: redis
       port: 6379
       password: redis123  # 🎯 添加Redis认证密码
-      database: 2  # 网关使用database 2，避免与平台服务冲突
+      database: 2  # 网关使用database 2 - 避免与平台服务冲突
       timeout: 5000
       lettuce:
         pool:
@@ -46,7 +46,7 @@ server:
 # 网关自定义配置
 xiaoxin:
   gateway:
-    new-architecture:
+    pipeline:
       enabled: true
     
     filters:
@@ -60,7 +60,7 @@ xiaoxin:
       response: true
 
     # 🔒 企业级安全配置 - 内网专用版
-    # 架构说明：仅允许Platform服务访问Gateway，实现安全的内网代理架构  
+    # 架构说明 - 仅允许Platform服务访问Gateway - 实现安全的内网代理架构  
     security:
       ip-whitelist:
         # ✅ 核心业务访问：Platform容器访问Gateway
@@ -106,7 +106,7 @@ dubbo:
       naming.auth.token: VGhpc0lzTXlDdXN0b21TZWNyZXRLZXkwMTIzNDU2Nzg5MDB
       naming.auth.identity.key: serverIdentity
       naming.auth.identity.value: security
-  # 🎯 明确禁用配置中心，只使用注册中心
+  # 🎯 明确禁用配置中心 - 只使用注册中心
   config-center:
     address: ""
   protocol:

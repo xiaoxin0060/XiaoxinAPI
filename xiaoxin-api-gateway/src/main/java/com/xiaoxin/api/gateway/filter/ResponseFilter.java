@@ -12,60 +12,8 @@ import java.nio.charset.StandardCharsets;
 /**
  * 响应过滤器 - 统一响应处理和性能统计
  * 
- * 业务职责：
- * - 处理代理调用的响应结果
- * - 统一响应格式输出给客户端
- * - 记录请求处理的完整耗时
- * - 处理异常情况的降级响应
- * - 添加响应头和CORS支持
- * 
- * 调用链路：
- * 所有前置过滤器执行完毕 → 获取响应数据 → 格式化输出 → 记录性能指标
- * 
- * 技术实现：
- * - 从Exchange attributes获取代理响应
- * - 使用DataBuffer写入响应体
- * - 设置正确的Content-Type和编码
- * - 响应式编程：非阻塞写入响应
- * - 异常安全：确保总有响应返回给客户端
- * 
- * 响应格式：
- * 成功响应：
- * {
- *   "code": 200,
- *   "message": "调用成功",
- *   "data": {...},
- *   "timestamp": 1641234567890
- * }
- * 
- * 错误响应：
- * {
- *   "code": 500,
- *   "message": "接口调用失败: 具体错误",
- *   "data": null,
- *   "timestamp": 1641234567890
- * }
- * 
- * 性能监控：
- * - 请求总耗时：从接收到响应的完整时间
- * - 各过滤器耗时：分阶段性能分析
- * - 成功率统计：调用成功/失败比例
- * - 响应大小：网络传输量统计
- * 
- * CORS支持：
- * - Access-Control-Allow-Origin：跨域访问控制
- * - Access-Control-Allow-Methods：允许的HTTP方法
- * - Access-Control-Allow-Headers：允许的请求头
- * - Access-Control-Max-Age：预检请求缓存时间
- * 
- * 缓存控制：
- * - Cache-Control：缓存策略控制
- * - ETag：响应内容标识
- * - Last-Modified：内容修改时间
- * - Expires：过期时间设置
- * 
- * @author xiaoxin
- * @since 1.0.0
+ * 职责：处理代理响应，统一JSON格式，记录性能指标，设置CORS头
+ * 执行时机：所有过滤器链执行完毕后处理最终响应
  */
 public class ResponseFilter extends BaseGatewayFilter {
 
@@ -97,7 +45,7 @@ public class ResponseFilter extends BaseGatewayFilter {
      * 
      * 响应数据来源：
      * 1. 代理过滤器：proxy.response（成功或失败响应）
-     * 2. 错误过滤器：error.response（各种错误响应）
+     * 2. 代理响应：成功的接口调用结果
      * 3. 默认响应：当没有明确响应时的兜底处理
      * 
      * 处理流程：
@@ -143,7 +91,7 @@ public class ResponseFilter extends BaseGatewayFilter {
      * 
      * 数据优先级：
      * 1. proxy.response：代理调用的响应（最高优先级）
-     * 2. error.response：错误处理的响应
+     * 2. proxy.response：代理调用的响应
      * 3. 默认响应：兜底的成功响应
      * 
      * 数据验证：
@@ -160,13 +108,6 @@ public class ResponseFilter extends BaseGatewayFilter {
         if (proxyResponse != null && !proxyResponse.isBlank()) {
             log.debug("获取代理响应数据，长度: {}", proxyResponse.length());
             return proxyResponse;
-        }
-        
-        // 获取错误响应
-        String errorResponse = exchange.getAttribute("error.response");
-        if (errorResponse != null && !errorResponse.isBlank()) {
-            log.debug("获取错误响应数据，长度: {}", errorResponse.length());
-            return errorResponse;
         }
         
         // 默认成功响应
@@ -234,14 +175,7 @@ public class ResponseFilter extends BaseGatewayFilter {
         response.getHeaders().add("Content-Type", "application/json;charset=UTF-8");
         response.getHeaders().add("Cache-Control", "no-cache, no-store, must-revalidate");
         
-        // CORS支持（可配置）
-        if (shouldEnableCors()) {
-            response.getHeaders().add("Access-Control-Allow-Origin", "*");
-            response.getHeaders().add("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
-            response.getHeaders().add("Access-Control-Allow-Headers", 
-                "Content-Type, Authorization, accessKey, sign, nonce, timestamp, x-content-sha256");
-            response.getHeaders().add("Access-Control-Max-Age", "3600");
-        }
+        // CORS已由全局配置统一处理
         
         // 安全响应头
         response.getHeaders().add("X-Content-Type-Options", "nosniff");
@@ -252,20 +186,6 @@ public class ResponseFilter extends BaseGatewayFilter {
         response.getHeaders().add("X-Powered-By", "XiaoXin-API-Gateway");
     }
 
-    /**
-     * 判断是否启用CORS
-     * 
-     * 可以通过配置控制CORS策略：
-     * - 开发环境：通常启用，便于前端调试
-     * - 生产环境：根据业务需求决定
-     * - 内网环境：可能不需要CORS
-     * 
-     * @return true-启用CORS，false-禁用CORS
-     */
-    private boolean shouldEnableCors() {
-        // 可配置化：xiaoxin.gateway.cors.enabled
-        return true; // 默认启用，可根据配置调整
-    }
 
     /**
      * 写入响应体
@@ -328,11 +248,24 @@ public class ResponseFilter extends BaseGatewayFilter {
             String method = exchange.getAttribute("request.method");
             String clientIp = exchange.getAttribute("client.ip");
             
-            // 安全的空值处理
+            // 兜底逻辑：确保在LoggingFilter禁用时也能获取基本信息
             requestId = requestId != null ? requestId : "unknown";
-            platformPath = platformPath != null ? platformPath : "unknown";
-            method = method != null ? method : "unknown";
-            clientIp = clientIp != null ? clientIp : "unknown";
+            if (platformPath == null) {
+                platformPath = exchange.getRequest().getPath().value();
+            }
+            if (method == null) {
+                method = exchange.getRequest().getMethod().name();
+            }
+            if (clientIp == null) {
+                // 从请求中提取客户端IP作为兜底
+                String forwarded = exchange.getRequest().getHeaders().getFirst("X-Forwarded-For");
+                if (forwarded != null && !forwarded.isEmpty()) {
+                    clientIp = forwarded.split(",")[0].trim();
+                } else {
+                    clientIp = exchange.getRequest().getRemoteAddress() != null ? 
+                        exchange.getRequest().getRemoteAddress().getAddress().getHostAddress() : "unknown";
+                }
+            }
             
             // 记录性能日志
             log.info("请求处理完成 - ID: {}, 路径: {}, 方法: {}, 客户端: {}, 耗时: {}ms, 成功: {}, 响应大小: {}字节", 
@@ -378,69 +311,22 @@ public class ResponseFilter extends BaseGatewayFilter {
      * @return 错误响应Mono
      */
     private Mono<Void> handleFilterChainError(ServerWebExchange exchange, Throwable error, long startTime) {
-        try {
-            log.error("过滤器链执行异常", error);
-            
-            // 构建错误响应
-            String errorResponse = buildErrorResponse(error);
-            
-            // 设置响应头
-            ServerHttpResponse response = exchange.getResponse();
-            setResponseHeaders(response);
-            response.setStatusCode(org.springframework.http.HttpStatus.INTERNAL_SERVER_ERROR);
-            
-            // 记录性能指标
-            recordPerformanceMetrics(exchange, startTime, false, errorResponse.length());
-            
-            // 写入错误响应
-            return writeResponseBody(response, errorResponse);
-            
-        } catch (Exception e) {
-            log.error("处理过滤器链异常时发生异常", e);
-            return exchange.getResponse().setComplete();
-        }
+        log.error("过滤器链执行异常", error);
+        recordPerformanceMetrics(exchange, startTime, false, 0);
+        // 委派给统一异常处理器
+        return handleSystemError(error, exchange);
     }
 
     /**
      * 处理响应处理异常
      */
     private Mono<Void> handleResponseError(ServerWebExchange exchange, Throwable error, long startTime) {
-        try {
-            log.error("响应处理异常", error);
-            
-            ServerHttpResponse response = exchange.getResponse();
-            String errorResponse = buildErrorResponse(error);
-            
-            response.setStatusCode(org.springframework.http.HttpStatus.INTERNAL_SERVER_ERROR);
-            response.getHeaders().add("Content-Type", "application/json;charset=UTF-8");
-            
-            recordPerformanceMetrics(exchange, startTime, false, errorResponse.length());
-            
-            return writeResponseBody(response, errorResponse);
-            
-        } catch (Exception e) {
-            log.error("处理响应异常时发生异常", e);
-            return exchange.getResponse().setComplete();
-        }
+        log.error("响应处理异常", error);
+        recordPerformanceMetrics(exchange, startTime, false, 0);
+        // 委派给统一异常处理器
+        return handleSystemError(error, exchange);
     }
 
-    /**
-     * 构建错误响应
-     */
-    private String buildErrorResponse(Throwable error) {
-        try {
-            return objectMapper.writeValueAsString(java.util.Map.of(
-                "code", 500,
-                "message", "系统内部错误，请稍后重试",
-                "data", (Object) null,
-                "timestamp", System.currentTimeMillis()
-            ));
-        } catch (Exception e) {
-            log.error("构建错误响应失败", e);
-            return "{\"code\":500,\"message\":\"系统内部错误，请稍后重试\",\"data\":null,\"timestamp\":" + 
-                   System.currentTimeMillis() + "}";
-        }
-    }
 
     /**
      * 获取过滤器启用状态

@@ -254,15 +254,6 @@ public class GatewayFilterProperties {
          */
         private int defaultTimeoutMs = 30000;
         
-        /**
-         * 默认重试次数
-         * 
-         * 重试策略：
-         * - 网络异常：自动重试
-         * - 超时异常：自动重试
-         * - 业务异常：不重试
-         */
-        private int defaultRetryCount = 3;
         
         /**
          * 是否启用指标收集

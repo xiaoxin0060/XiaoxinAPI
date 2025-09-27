@@ -11,45 +11,8 @@ import reactor.core.publisher.Mono;
 /**
  * 接口过滤器 - 接口查询和状态检查
  * 
- * 业务职责：
- * - 根据平台路径和HTTP方法查询接口信息
- * - 验证接口是否存在于数据库中
- * - 检查接口状态是否为启用状态
- * - 为后续过滤器提供接口元信息
- * - 支持动态代理架构的接口路由
- * 
- * 调用链路：
- * 请求 → 提取路径和方法 → Dubbo查询接口 → 验证接口状态 → 存储接口信息 → 下一个过滤器
- * 
- * 技术实现：
- * - 使用@DubboReference调用平台服务查询接口信息
- * - 复用原有接口查询和验证逻辑，保持兼容性
- * - 支持动态代理：区分平台路径和真实接口地址
- * - 通过ServerWebExchange.attributes传递接口信息
- * - 响应式编程：异步处理Dubbo RPC调用
- * 
- * 数据模型：
- * - InterfaceInfo：接口元信息，包含路由、认证、限流等配置
- * - url：平台统一API路径（对外暴露，如：/api/geo/query）
- * - providerUrl：真实接口地址（内部转发，如：http://ip-api.com/json）
- * - status：接口状态（0-关闭，1-开启）
- * - authType：认证类型（NONE/API_KEY/BASIC/BEARER）
- * - rateLimit：限流配置（次/分钟）
- * 
- * 错误处理：
- * - 接口不存在：返回403 Forbidden
- * - 接口已下线：返回403 Forbidden
- * - 查询异常：记录日志并返回403
- * - 数据库连接失败：降级处理
- * 
- * 性能优化：
- * - 接口信息缓存：减少频繁的数据库查询
- * - 异步查询：避免阻塞WebFlux事件循环
- * - 批量预加载：启动时加载热点接口
- * - 懒加载：按需查询非热点接口
- * 
- * @author xiaoxin
- * @since 1.0.0
+ * 职责：根据路径和方法查询接口信息，验证接口状态
+ * 流程：Dubbo查询 → 状态校验 → 存储接口信息到Exchange
  */
 public class InterfaceFilter extends BaseGatewayFilter {
 
@@ -79,9 +42,15 @@ public class InterfaceFilter extends BaseGatewayFilter {
 
         long startTime = System.currentTimeMillis();
         
-        // 从前置过滤器获取请求信息
+        // 从前置过滤器获取请求信息（兜底逻辑确保在LoggingFilter禁用时也能工作）
         String platformPath = exchange.getAttribute("platform.path");
+        if (platformPath == null) {
+            platformPath = exchange.getRequest().getPath().value();
+        }
         String method = exchange.getAttribute("request.method");
+        if (method == null) {
+            method = exchange.getRequest().getMethod().name();
+        }
         
         return queryInterfaceInfo(platformPath, method)
             .flatMap(interfaceInfo -> validateInterfaceStatus(interfaceInfo))
@@ -98,12 +67,12 @@ public class InterfaceFilter extends BaseGatewayFilter {
             .onErrorResume(InterfaceException.class, error -> {
                 log.warn("接口验证失败: {}", error.getMessage());
                 recordFilterMetrics("InterfaceFilter", startTime, false, error);
-                return handleNoAuth(exchange.getResponse());
+                return handleInterfaceNotFound(exchange);
             })
             .onErrorResume(Exception.class, error -> {
                 log.error("接口过滤器执行异常", error);
                 recordFilterMetrics("InterfaceFilter", startTime, false, error);
-                return handleNoAuth(exchange.getResponse());
+                return handleSystemError(error, exchange);
             });
     }
 

@@ -16,29 +16,7 @@ import java.util.HashMap;
 import java.util.Map;
 
 /**
- * 网关统一异常处理器 - 简化版
- * 
- * 学习要点：
- * 1. 统一异常处理的设计思想
- * 2. Jackson JSON序列化的使用
- * 3. WebFlux响应式编程模型
- * 4. Spring依赖注入的实际应用
- * 5. 异常安全的编程实践
- * 
- * 核心职责：
- * - 将GatewayException转换为统一的JSON响应
- * - 设置正确的HTTP状态码和响应头
- * - 记录异常日志便于问题排查
- * - 提供异常降级处理机制
- * 
- * 技术特性：
- * - 响应式编程：支持WebFlux的Mono返回
- * - 异常安全：处理异常中的异常情况
- * - 编码安全：使用UTF-8避免中文乱码
- * - 格式统一：所有异常返回相同的JSON结构
- * 
- * @author xiaoxin
- * @since 1.0.0
+ * 网关统一异常处理器 - 将异常转为JSON响应
  */
 @Component
 public class GatewayExceptionHandler {
@@ -128,11 +106,13 @@ public class GatewayExceptionHandler {
      * @param exchange WebFlux交换对象
      */
     private void logException(GatewayException exception, ServerWebExchange exchange) {
-        // 提取请求信息
+        // 提取请求信息（空值兜底）
         String path = exchange.getRequest().getPath().value();
         String method = exchange.getRequest().getMethod().name();
         String clientIp = exchange.getAttribute("client.ip");
+        clientIp = clientIp != null ? clientIp : "unknown";
         String requestId = exchange.getAttribute("request.id");
+        requestId = requestId != null ? requestId : "unknown";
         
         // 记录结构化日志
         log.error("网关异常 - 错误码: {}, 消息: {}, HTTP状态: {}, 请求: {} {}, 客户端IP: {}, 请求ID: {}",
@@ -212,11 +192,7 @@ public class GatewayExceptionHandler {
         response.getHeaders().add("Content-Type", "application/json;charset=UTF-8");
         response.getHeaders().add("Cache-Control", "no-cache, no-store, must-revalidate");
         
-        // CORS支持
-        response.getHeaders().add("Access-Control-Allow-Origin", "*");
-        response.getHeaders().add("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
-        response.getHeaders().add("Access-Control-Allow-Headers", 
-            "Content-Type, Authorization, accessKey, sign, nonce, timestamp");
+        // CORS已由全局配置统一处理
         
         // 创建响应体并写入
         DataBuffer buffer = response.bufferFactory().wrap(jsonContent.getBytes(StandardCharsets.UTF_8));
@@ -289,5 +265,9 @@ public class GatewayExceptionHandler {
     
     public static GatewayException systemError(Throwable cause) {
         return new GatewayException(GatewayErrorCode.INTERNAL_ERROR, cause);
+    }
+    
+    public static GatewayException quotaExceeded() {
+        return new GatewayException(GatewayErrorCode.QUOTA_EXCEEDED);
     }
 }

@@ -12,19 +12,19 @@ spring:
           globalcors:
             cors-configurations:
               '[/**]':
-                          allowedOrigins: "*"
-                          allowedMethods: "*"
-                          allowedHeaders: "*"
-                          maxAge: 3600
+                allowedOrigins: "*"
+                allowedMethods: "*" 
+                allowedHeaders: "*"
+                maxAge: 3600
           default-filters:
             - AddResponseHeader=source, xiaoxin
           routes:
-            # 捕获所有/api/**请求，URI为占位符，实际转发在GlobalFilter中处理
-                    - id: dynamic_proxy_route
-                      uri: no://op
-                      predicates:
-                        - Path=/api/**
-  # Redis配置、网关使用独立的数据库
+            - id: dynamic_proxy_route
+              uri: no://op
+              predicates:
+                - Path=/api/**
+  
+  # Redis配置 - 网关使用独立的数据库
   data:
     redis:
       host: localhost
@@ -44,9 +44,9 @@ server:
 # 小新网关自定义配置
 xiaoxin:
   gateway:
-    # 🚀 架构切换开关 - 控制使用新架构还是旧架构
-    new-architecture:
-      enabled: true  # true=新架构(推荐), false=旧架构(兼容)
+    # 过滤器链路开关
+    pipeline:
+      enabled: true 
     
     # 过滤器开关配置（细粒度控制）
     filters:
@@ -84,7 +84,6 @@ xiaoxin:
     # 代理配置
     proxy:
       default-timeout-ms: 30000  # 默认超时时间（毫秒）
-      default-retry-count: 3     # 默认重试次数
       enable-metrics: true       # 启用指标收集
       enable-request-logging: true  # 启用请求日志
 

@@ -7,39 +7,7 @@ import org.springframework.web.server.ServerWebExchange;
 import reactor.core.publisher.Mono;
 
 /**
- * 日志过滤器
- * 
- * 业务职责：
- * - 记录请求基本信息(ID、路径、方法、参数)
- * - 解析客户端真实IP地址
- * - 处理代理场景的X-Forwarded-For头
- * - 为后续过滤器提供数据
- * - 记录请求开始时间用于性能统计
- * 
- * 调用链路：
- * 请求 → 提取请求信息 → 解析客户端IP → 记录日志 → 存储到Exchange → 下一个过滤器
- * 
- * 技术实现：
- * - 复用原有日志记录逻辑，保持兼容性
- * - 通过ServerWebExchange.attributes传递数据给后续过滤器
- * - 支持IPv4和IPv6地址解析
- * - 处理反向代理的X-Forwarded-For头
- * - 使用Spring WebFlux响应式编程模型
- * 
- * 数据传递：
- * - request.id → Exchange.attributes["request.id"]
- * - platform.path → Exchange.attributes["platform.path"]
- * - request.method → Exchange.attributes["request.method"]
- * - client.ip → Exchange.attributes["client.ip"]
- * - request.startTime → Exchange.attributes["request.startTime"]
- * 
- * 性能考虑：
- * - 日志级别控制：INFO级别记录关键信息，DEBUG级别记录详细信息
- * - 字符串操作优化：避免不必要的字符串拼接
- * - 异常安全：IP解析异常不影响主流程
- * 
- * @author xiaoxin
- * @since 1.0.0
+ * 日志过滤器 - 记录请求信息，解析IP，为后续过滤器提供数据
  */
 public class LoggingFilter extends BaseGatewayFilter {
 

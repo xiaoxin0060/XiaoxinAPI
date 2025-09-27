@@ -21,54 +21,13 @@ import reactor.core.publisher.Mono;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Base64;
+import java.util.Map;
 
 /**
  * 代理过滤器 - 动态代理转发
  * 
- * 业务职责：
- * - 将平台统一API路径转发到真实接口地址
- * - 处理不同接口的认证方式（API_KEY/BASIC/BEARER）
- * - 构建和转发HTTP请求到目标服务
- * - 处理超时、重试和错误响应
- * - 记录调用成功次数用于统计计费
- * 
- * 调用链路：
- * 请求 → 构建目标URL → 处理认证头 → WebClient调用 → 处理响应 → 记录统计
- * 
- * 技术实现：
- * - 使用Spring WebClient进行响应式HTTP调用
- * - 支持多种认证方式的动态配置
- * - 复用原有动态代理逻辑，保持兼容性
- * - 解密接口认证配置，安全访问真实接口
- * - 统一响应格式，包装第三方接口返回
- * 
- * 动态代理架构：
- * - 平台路径：/api/geo/query（客户端请求）
- * - 真实地址：http://ip-api.com/json（实际转发）
- * - 路径映射：数据库存储的接口配置
- * - 参数透传：Query参数和请求体完整转发
- * 
- * 认证支持：
- * - NONE：无需认证，直接转发
- * - API_KEY：添加API密钥到指定头部
- * - BASIC：HTTP Basic认证
- * - BEARER：Bearer Token认证
- * - 配置加密：认证信息AES-GCM加密存储
- * 
- * 错误处理：
- * - 网络超时：配置化超时时间，支持重试
- * - 服务不可用：返回统一错误格式
- * - 认证失败：记录日志，返回代理错误
- * - 解析异常：降级处理，保证服务可用性
- * 
- * 性能优化：
- * - 连接池：WebClient复用HTTP连接
- * - 超时控制：避免长时间阻塞
- * - 异步处理：响应式编程，高并发支持
- * - 资源回收：及时释放网络和内存资源
- * 
- * @author xiaoxin
- * @since 1.0.0
+ * 职责：转发请求到真实接口，支持多种认证方式，集成分布式熔断器
+ * 技术：WebClient响应式HTTP调用，AES-GCM认证配置解密
  */
 public class ProxyFilter extends BaseGatewayFilter {
 
@@ -137,13 +96,13 @@ public class ProxyFilter extends BaseGatewayFilter {
         if (user == null) {
             log.error("用户信息为空，无法进行代理调用");
             recordFilterMetrics("ProxyFilter", startTime, false, null);
-            return handleNoAuth(exchange.getResponse());
+            return handleAuthFailed(exchange);
         }
         
         if (interfaceInfo == null) {
             log.error("接口信息为空，无法进行代理调用");
             recordFilterMetrics("ProxyFilter", startTime, false, null);
-            return handleNoAuth(exchange.getResponse());
+            return handleAuthFailed(exchange);
         }
         
         return performDynamicProxy(exchange, interfaceInfo, user, request)
@@ -475,10 +434,10 @@ public class ProxyFilter extends BaseGatewayFilter {
     private String buildCircuitBreakerFallbackResponse(InterfaceInfo interfaceInfo) {
         try {
             // 构建友好的降级响应
-            return objectMapper.writeValueAsString(java.util.Map.of(
+            return objectMapper.writeValueAsString(Map.of(
                 "code", 503,
                 "message", "服务暂时不可用，请稍后重试",
-                "data", java.util.Map.of(
+                "data", Map.of(
                     "service", interfaceInfo.getName(),
                     "reason", "服务熔断保护",
                     "suggestion", "系统检测到该服务异常，已启动保护机制，请稍后重试"

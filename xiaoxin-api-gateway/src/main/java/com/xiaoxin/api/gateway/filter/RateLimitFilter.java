@@ -16,48 +16,8 @@ import java.util.UUID;
 /**
  * 限流过滤器 - 基于滑动窗口的分布式限流
  * 
- * 业务职责：
- * - 基于用户+接口维度进行限流控制
- * - 使用Redis Sorted Set实现滑动窗口算法
- * - 支持接口级别的差异化限流策略
- * - 防止系统过载和恶意攻击
- * - 保障系统稳定性和公平性
- * 
- * 调用链路：
- * 请求 → 获取用户和接口信息 → 检查限流配置 → 滑动窗口计算 → 通过继续/拒绝限流
- * 
- * 技术实现：
- * - Redis Sorted Set存储请求时间戳，Score为时间戳，Member为UUID
- * - 滑动窗口：定期清理过期记录，统计窗口内请求数量
- * - 原子操作：使用Redis管道确保操作的原子性
- * - 响应式编程：避免阻塞WebFlux事件循环
- * - 降级策略：Redis异常时允许请求通过
- * 
- * 限流算法：滑动窗口 vs 固定窗口
- * - 固定窗口：每分钟重置计数器，存在突发流量问题
- * - 滑动窗口：实时滑动，平滑限流，更精确的流量控制
- * - 示例：限制1000次/分钟，滑动窗口能防止前30秒1000次请求的突发
- * 
- * 限流维度：
- * - 用户级限流：userId:interfaceId，防止单用户过度使用
- * - 接口级限流：interfaceId，防止单接口过载
- * - 全局限流：global，防止系统整体过载
- * - IP级限流：clientIp，防止恶意攻击（可扩展）
- * 
- * 配置支持：
- * - 窗口大小：xiaoxin.gateway.rate-limit.window-seconds
- * - 默认限制：xiaoxin.gateway.rate-limit.default-limit
- * - Redis前缀：xiaoxin.gateway.rate-limit.redis-key-prefix
- * - 接口个性化：InterfaceInfo.rateLimit字段
- * 
- * 性能优化：
- * - 批量Redis操作：减少网络往返次数
- * - 合理过期时间：自动清理Redis内存
- * - 异步操作：不阻塞主请求流程
- * - 降级机制：Redis故障时的容错处理
- * 
- * @author xiaoxin
- * @since 1.0.0
+ * 职责：使用Redis Sorted Set实现用户+接口维度的滑动窗口限流
+ * 算法：存储请求时间戳，清理过期记录，统计窗口内请求数
  */
 public class RateLimitFilter extends BaseGatewayFilter {
 

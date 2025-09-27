@@ -4,6 +4,7 @@ import com.xiaoxin.api.common.utils.ApiSignUtils;
 import com.xiaoxin.api.gateway.filter.base.BaseGatewayFilter;
 import com.xiaoxin.api.platform.model.entity.User;
 import com.xiaoxin.api.platform.service.InnerUserService;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.dubbo.config.annotation.DubboReference;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.cloud.gateway.filter.GatewayFilterChain;
@@ -19,56 +20,13 @@ import java.time.Duration;
 /**
  * 认证过滤器 - 用户鉴权和签名验证
  * 
- * 业务职责：
- * - 验证API签名的有效性（HMAC-SHA256）
- * - 检查时间戳防重放攻击
- * - 验证nonce防重复提交
- * - 查询用户信息并验证AccessKey
- * - 实现防重放攻击机制
- * 
- * 调用链路：
- * 请求 → 提取签名参数 → 验证参数格式 → Dubbo查询用户 → 验证签名 → Redis防重放 → 放行
- * 
- * 技术实现：
- * - 使用@DubboReference进行RPC调用，查询用户信息
- * - ReactiveStringRedisTemplate实现防重放攻击
- * - 复用ApiSignUtils统一签名算法，确保客户端服务端一致性
- * - 使用Spring WebFlux响应式编程模型
- * - 常量时间比较防止时序攻击
- * 
- * 安全机制：
- * - HMAC-SHA256签名：防止请求篡改和伪造
- * - 时间戳验证：防止重放攻击（默认5分钟有效期）
- * - nonce验证：防止重复提交（16位随机字符串）
- * - 字符集限制：nonce只允许字母数字字符
- * - Redis去重：相同nonce在有效期内只能使用一次
- * 
- * 性能优化：
- * - 早期参数验证：无效请求快速拒绝，减少后续计算
- * - 异步用户查询：使用Dubbo异步调用（如果支持）
- * - Redis批量操作：原子性检查和设置nonce
- * - 常量时间比较：防止签名时序攻击
- * 
- * 错误处理：
- * - 参数缺失：返回403 Forbidden
- * - 用户不存在：返回403 Forbidden
- * - 签名无效：返回403 Forbidden
- * - 时间戳过期：返回403 Forbidden
- * - nonce重复：返回403 Forbidden
- * - 系统异常：记录日志并返回403
- * 
- * 配置支持：
- * - 签名有效期：xiaoxin.gateway.security.signature-timeout-seconds
- * - nonce长度：xiaoxin.gateway.security.nonce-length
- * - 时间戳验证开关：xiaoxin.gateway.security.enable-timestamp-validation
- * - 防重放开关：xiaoxin.gateway.security.enable-replay-protection
- * 
- * @author xiaoxin
- * @since 1.0.0
+ * 职责：HMAC-SHA256签名验证，时间戳和nonce防重放攻击，Redis去重机制
+ * 安全：常量时间比较防时序攻击，参数格式校验，Dubbo用户查询
  */
+@Slf4j
 public class AuthenticationFilter extends BaseGatewayFilter {
 
-    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(AuthenticationFilter.class);
+
 
     /**
      * 内部用户服务
@@ -124,7 +82,7 @@ public class AuthenticationFilter extends BaseGatewayFilter {
                                                 if (!allowed) {
                                                     log.warn("检测到重放攻击 - AccessKey: {}, Nonce: {}", 
                                                             params.accessKey, params.nonce);
-                                                    return handleNoAuth(exchange.getResponse());
+                                                    return handleAuthFailed(exchange);
                                                 }
                                                 return proceedWithAuthentication(exchange, chain, validUser, startTime);
                                             });
@@ -310,9 +268,15 @@ public class AuthenticationFilter extends BaseGatewayFilter {
      */
     private Mono<User> validateSignature(ServerWebExchange exchange, User user, AuthParams params) {
         try {
-            // 获取请求信息
+            // 获取请求信息（兜底逻辑确保在LoggingFilter禁用时也能工作）
             String method = exchange.getAttribute("request.method");
+            if (method == null) {
+                method = exchange.getRequest().getMethod().name();
+            }
             String platformPath = exchange.getAttribute("platform.path");
+            if (platformPath == null) {
+                platformPath = exchange.getRequest().getPath().value();
+            }
             
             // 构建canonical字符串（与客户端SDK完全一致）
             String canonical = ApiSignUtils.buildCanonicalString(
@@ -333,8 +297,7 @@ public class AuthenticationFilter extends BaseGatewayFilter {
             );
             
             if (!signatureValid) {
-                log.warn("签名验证失败 - AccessKey: {}, 期望: {}, 实际: {}", 
-                        user.getAccessKey(), expectedSign, params.sign);
+                log.warn("签名验证失败 - AccessKey: {}, 签名不匹配", user.getAccessKey());
                 return Mono.error(new AuthenticationException("签名验证失败"));
             }
             

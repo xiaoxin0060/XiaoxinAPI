@@ -4,11 +4,13 @@ import cn.hutool.core.util.RandomUtil;
 import cn.hutool.http.HttpRequest;
 import cn.hutool.http.HttpResponse;
 import cn.hutool.http.HttpUtil;
+import cn.hutool.json.JSONArray;
+import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
 import com.xiaoxin.api.common.utils.ApiSignUtils;
+import lombok.Getter;
 
-import java.util.HashMap;
-import java.util.Map;
+import java.util.*;
 
 /**
  * 小新API客户端 - 企业级统一接口调用SDK
@@ -25,6 +27,11 @@ public class XiaoxinApiClient {
     
     private final String accessKey;
     private final String secretKey;
+    /**
+     * -- GETTER --
+     *  便于排错与测试：返回当前客户端目标网关地址
+     */
+    @Getter
     private final String host;
 
     public XiaoxinApiClient(String accessKey, String secretKey) {
@@ -51,24 +58,17 @@ public class XiaoxinApiClient {
     }
 
     /**
-     * 便于排错与测试：返回当前客户端目标网关地址
-     */
-    public String getHost() {
-        return host;
-    }
-
-    /**
      * 统一接口调用方法
      * 
      * 使用示例：
      * <pre>
      * // GET请求：JSON对象自动转换为Query参数
-     * Map&lt;String, Object&gt; params = Map.of("city", "北京", "date", "2024-01-01");
+     * Map<String, Object>; params = Map.of("city", "北京", "date", "2024-01-01");
      * client.invokeInterface("/api/weather", "GET", params);
      * // 实际请求：GET /api/weather?city=北京&date=2024-01-01
      * 
      * // POST请求：JSON对象自动转换为JSON Body  
-     * Map&lt;String, Object&gt; userData = Map.of("name", "张三", "age", 25);
+     * Map<String, Object>; userData = Map.of("name", "张三", "age", 25);
      * client.invokeInterface("/api/users", "POST", userData);
      * // 实际请求：POST /api/users Body: {"name":"张三","age":25}
      * </pre>
@@ -292,17 +292,15 @@ public class XiaoxinApiClient {
     }
 
     private Object normalizeNode(Object node) {
-        if (node instanceof cn.hutool.json.JSONObject obj) {
-            java.util.TreeMap<String, Object> sorted = new java.util.TreeMap<>();
+        if (node instanceof JSONObject obj) {
+            TreeMap<String, Object> sorted = new TreeMap<>();
             for (String key : obj.keySet()) {
                 Object val = obj.get(key);
                 sorted.put(key, normalizeNode(val));
             }
-            java.util.LinkedHashMap<String, Object> ordered = new java.util.LinkedHashMap<>();
-            sorted.forEach(ordered::put);
-            return ordered;
-        } else if (node instanceof cn.hutool.json.JSONArray arr) {
-            java.util.List<Object> list = new java.util.ArrayList<>();
+            return new LinkedHashMap<>(sorted);
+        } else if (node instanceof JSONArray arr) {
+            List<Object> list = new ArrayList<>();
             for (Object v : arr) { list.add(normalizeNode(v)); }
             return list;
         } else {
