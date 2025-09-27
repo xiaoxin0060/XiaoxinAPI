@@ -120,6 +120,15 @@ xiaoxin:
     # 技术说明：Docker Compose为每个服务创建内部DNS记录
     # xiaoxin-gateway会自动解析为Gateway容器的IP地址
     host: http://xiaoxin-gateway:8090
+  
+  # 平台配置 - Docker环境
+  platform:
+    # 免费配额配置 
+    quota:
+      free:
+        enabled: true           # 启用免费配额
+        left-num: 50           # 每个接口赠送50次免费调用
+        interface-ids: []      # 空表示所有接口，非空表示仅白名单接口
 
 # 日志配置 - Docker环境优化
 logging:

@@ -86,3 +86,12 @@ xiaoxin:
   gateway:
     # 本地环境：Gateway运行在localhost:8090
     host: http://localhost:8090
+  
+  # 平台配置
+  platform:
+    # 免费配额配置 
+    quota:
+      free:
+        enabled: true           # 启用免费配额
+        left-num: 50           # 每个接口赠送50次免费调用
+        interface-ids: []      # 空表示所有接口，非空表示仅白名单接口
